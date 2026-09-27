@@ -1,0 +1,208 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==============================
+// LOOKUP TABLES
+// ==============================
+
+model Role {
+  roleId   Int    @id @default(autoincrement())
+  roleName String @unique
+
+  users User[]
+}
+
+model FacilityType {
+  facilityTypeId Int    @id @default(autoincrement())
+  typeName       String @unique
+
+  facilities Facility[]
+}
+
+model EquipmentCategory {
+  categoryId   Int    @id @default(autoincrement())
+  categoryName String @unique
+
+  equipment Equipment[]
+}
+
+model ReservationStatus {
+  statusId   Int    @id @default(autoincrement())
+  statusName String @unique
+
+  reservations Reservation[]
+}
+
+model User {
+  userId        Int      @id @default(autoincrement())
+  roleId        Int
+  fullName      String
+  email         String   @unique
+  passwordHash  String
+  idNumber      String?  @unique
+  contactNumber String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  role Role @relation(fields: [roleId], references: [roleId])
+
+  requestedReservations Reservation[] @relation("ReservationRequester")
+  approvedReservations  Reservation[] @relation("ReservationApprover")
+
+  equipmentLoansApproved EquipmentLoan[] @relation("EquipmentLoanApprover")
+  equipmentLoansBorrowed EquipmentLoan[] @relation("EquipmentBorrower")
+
+  maintenanceReports     MaintenanceRequest[] @relation("MaintenanceReporter")
+  maintenanceAssignments MaintenanceRequest[] @relation("MaintenanceAssignee")
+
+  facilityAssignments FacilityStaffAssignment[] @relation("FacilityStaff")
+
+  auditLogs AuditLog[] @relation("AuditChangedBy")
+}
+
+model Building {
+  buildingId   Int    @id @default(autoincrement())
+  buildingName String @unique
+  floorCount   Int
+
+  facilities Facility[]
+}
+
+model Facility {
+  facilityId     Int    @id @default(autoincrement())
+  buildingId     Int
+  facilityTypeId Int
+  facilityName   String
+  floorNumber    Int
+  capacity       Int
+  status         String @default("Available")
+
+  building     Building     @relation(fields: [buildingId], references: [buildingId])
+  facilityType FacilityType @relation(fields: [facilityTypeId], references: [facilityTypeId])
+
+  equipment          Equipment[]
+  reservations       Reservation[]
+  maintenanceRequests MaintenanceRequest[]
+  staffAssignments   FacilityStaffAssignment[]
+}
+
+model Equipment {
+  equipmentId       Int    @id @default(autoincrement())
+  categoryId        Int
+  homeFacilityId    Int?
+  equipmentName     String
+  totalQuantity     Int
+  availableQuantity Int
+  conditionStatus   String @default("Good")
+
+  category     EquipmentCategory @relation(fields: [categoryId], references: [categoryId])
+  homeFacility Facility?         @relation(fields: [homeFacilityId], references: [facilityId])
+
+  reservationItems ReservationEquipment[]
+  loans            EquipmentLoan[]
+  maintenanceRequests MaintenanceRequest[]
+}
+
+model Reservation {
+  reservationId Int      @id @default(autoincrement())
+  facilityId    Int
+  requestedBy   Int
+  approvedBy    Int?
+  statusId      Int
+  purpose       String
+  startDatetime DateTime
+  endDatetime   DateTime
+
+  facility Facility @relation(fields: [facilityId], references: [facilityId])
+  requester User     @relation("ReservationRequester", fields: [requestedBy], references: [userId])
+  approver  User?    @relation("ReservationApprover", fields: [approvedBy], references: [userId])
+  status    ReservationStatus @relation(fields: [statusId], references: [statusId])
+
+  equipmentItems ReservationEquipment[]
+}
+
+model ReservationEquipment {
+  reservationId Int
+  equipmentId   Int
+  quantity      Int
+  notes         String?
+
+  reservation Reservation @relation(fields: [reservationId], references: [reservationId])
+  equipment   Equipment   @relation(fields: [equipmentId], references: [equipmentId])
+
+  @@id([reservationId, equipmentId])
+}
+
+model EquipmentLoan {
+  loanId       Int       @id @default(autoincrement())
+  userId       Int
+  equipmentId  Int
+  approvedBy   Int?
+  quantity     Int
+  checkoutDate DateTime  @default(now())
+  dueDate      DateTime
+  returnDate   DateTime?
+  conditionOut String?
+  conditionIn  String?
+  loanStatus   String    @default("Borrowed")
+
+  user      User      @relation("EquipmentBorrower", fields: [userId], references: [userId])
+  equipment Equipment @relation(fields: [equipmentId], references: [equipmentId])
+  approver  User?     @relation("EquipmentLoanApprover", fields: [approvedBy], references: [userId])
+}
+
+model FacilityStaffAssignment {
+  assignmentId Int      @id @default(autoincrement())
+  facilityId   Int
+  staffId      Int
+  assignedRole String   @default("Custodian")
+  assignedDate DateTime @db.Date @default(now())
+
+  facility Facility @relation(fields: [facilityId], references: [facilityId])
+  staff    User     @relation("FacilityStaff", fields: [staffId], references: [userId])
+
+  @@unique([facilityId, staffId])
+}
+
+model MaintenanceRequest {
+  requestId       Int       @id @default(autoincrement())
+  facilityId      Int?
+  equipmentId     Int?
+  reportedBy      Int?
+  assignedStaffId Int?
+  description     String
+  priority        String    @default("Normal")
+  status          String    @default("Open")
+  reportedAt      DateTime  @default(now())
+  resolvedAt      DateTime?
+  resolutionNotes String?
+
+  facility      Facility?  @relation(fields: [facilityId], references: [facilityId])
+  equipment     Equipment? @relation(fields: [equipmentId], references: [equipmentId])
+  reporter      User?      @relation("MaintenanceReporter", fields: [reportedBy], references: [userId])
+  assignedStaff User?      @relation("MaintenanceAssignee", fields: [assignedStaffId], references: [userId])
+}
+
+model AuditLog {
+  logId      BigInt   @id @default(autoincrement())
+  tableName  String
+  recordId   Int
+  actionType String
+  changedBy  Int?
+  oldValue   Json?
+  newValue   Json?
+  changedAt  DateTime @default(now())
+
+  user User? @relation("AuditChangedBy", fields: [changedBy], references: [userId])
+}

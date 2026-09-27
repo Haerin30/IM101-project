@@ -91,10 +91,10 @@ model Facility {
   building     Building     @relation(fields: [buildingId], references: [buildingId])
   facilityType FacilityType @relation(fields: [facilityTypeId], references: [facilityTypeId])
 
-  equipment          Equipment[]
-  reservations       Reservation[]
+  equipment           Equipment[]
+  reservations        Reservation[]
   maintenanceRequests MaintenanceRequest[]
-  staffAssignments   FacilityStaffAssignment[]
+  staffAssignments    FacilityStaffAssignment[]
 }
 
 model Equipment {
@@ -109,8 +109,8 @@ model Equipment {
   category     EquipmentCategory @relation(fields: [categoryId], references: [categoryId])
   homeFacility Facility?         @relation(fields: [homeFacilityId], references: [facilityId])
 
-  reservationItems ReservationEquipment[]
-  loans            EquipmentLoan[]
+  reservationItems    ReservationEquipment[]
+  loans               EquipmentLoan[]
   maintenanceRequests MaintenanceRequest[]
 }
 
@@ -124,9 +124,9 @@ model Reservation {
   startDatetime DateTime
   endDatetime   DateTime
 
-  facility Facility @relation(fields: [facilityId], references: [facilityId])
-  requester User     @relation("ReservationRequester", fields: [requestedBy], references: [userId])
-  approver  User?    @relation("ReservationApprover", fields: [approvedBy], references: [userId])
+  facility  Facility          @relation(fields: [facilityId], references: [facilityId])
+  requester User              @relation("ReservationRequester", fields: [requestedBy], references: [userId])
+  approver  User?             @relation("ReservationApprover", fields: [approvedBy], references: [userId])
   status    ReservationStatus @relation(fields: [statusId], references: [statusId])
 
   equipmentItems ReservationEquipment[]
@@ -167,7 +167,7 @@ model FacilityStaffAssignment {
   facilityId   Int
   staffId      Int
   assignedRole String   @default("Custodian")
-  assignedDate DateTime @db.Date @default(now())
+  assignedDate DateTime @default(now()) @db.Date
 
   facility Facility @relation(fields: [facilityId], references: [facilityId])
   staff    User     @relation("FacilityStaff", fields: [staffId], references: [userId])

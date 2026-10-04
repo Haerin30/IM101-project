@@ -47,7 +47,8 @@ model ReservationStatus {
 model User {
   userId        Int      @id @default(autoincrement())
   roleId        Int
-  fullName      String
+  fname         String
+  lname         String
   email         String   @unique
   passwordHash  String
   idNumber      String?  @unique

@@ -40,6 +40,7 @@ function createApp({ database = prisma, authOptions } = {}) {
         auth.authenticate,
         require("./routes/reservation.routes"),
     );
+    app.use("/api/loans", auth.authenticate, require("./routes/loan.routes"));
     app.use(
         "/api/test",
         auth.authenticate,

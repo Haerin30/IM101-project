@@ -1,86 +1,145 @@
 # IM101 Campus Facility Management System
 
-Express and JavaScript/CommonJS backend using Prisma 7.10.0 and PostgreSQL
-hosted on Supabase. The React frontend is planned.
+Express/CommonJS backend with Prisma 7, PostgreSQL, and three-role access control.
+The React frontend is planned.
 
-## Local setup
+## Setup
 
-Use Node.js 24 and run `npm ci`. Create a local `.env` with your development
-`DATABASE_URL`; never commit credentials. `npm start` starts the API and
-`npm run dev` starts it with nodemon. Database setup and client generation
-are separate from quality checks. Do not run seeds or migrations against
-a shared database without reviewing their effects.
+Use Node.js 24. Run `npm ci`, configure `DATABASE_URL` in a local `.env`,
+then run `npx prisma generate --config prisma7.config.ts`.
+Apply reviewed migrations with `npx prisma migrate deploy --config prisma7.config.ts`.
+Run `npm start` or `npm run dev` (Node's built-in watcher).
 
-## Code quality
+The PostgreSQL connection explicitly uses UTC; API timestamps must include a
+timezone. Stored timestamps use `timestamptz`. Deploy the application and migration
+together: this version requires the new tables, triggers, and stored procedure.
 
-Run `npm run quality` before requesting review. It runs these mandatory checks:
+## Migration and existing data
 
-| Command                   | Purpose                                                           |
-| ------------------------- | ----------------------------------------------------------------- |
-| `npm run prisma:validate` | Validate the schema with the installed Prisma CLI                 |
-| `npm run format:check`    | Check Prettier and Prisma formatting without rewriting files      |
-| `npm run check:syntax`    | Parse backend, seed, tooling, and test JavaScript                 |
-| `npm run lint`            | Run ESLint's recommended rules for CommonJS, plus strict equality |
-| `npm test`                | Run Node's built-in test runner                                   |
+The integrity migration is transactional. It requires PostgreSQL's `btree_gist`
+extension (available on Supabase). Existing blank purposes, invalid time ranges,
+overlapping Pending/Approved reservations, invalid quantities, or stock counts
+that disagree with active loans/allocations stop the migration. Resolve those
+records deliberately; the migration does not delete bookings or invent inventory.
+Back up the database and review these records before applying it.
 
-Run `npm run format` to fix formatting. Prisma formatting changes whitespace;
-it does not apply migrations. Prettier excludes generated files, migrations,
-lockfiles, and third-party agent skills. Prisma formats its own schema.
-The existing Prisma configuration file is tooling, not a migration of the
-JavaScript backend to TypeScript.
+Legacy timestamp-without-timezone values are interpreted as UTC, matching
+Prisma's existing timestamp convention. Review this assumption if historical
+records were entered directly using local-time SQL.
 
-The initial tests exercise the real equipment controller with a stubbed Prisma
-dependency. They test existing validation, field whitelisting, and safe error
-responses without loading `.env` or connecting to any database. They are not
-HTTP integration tests and do not prove reservation rules or database integrity.
-Authentication, RBAC, and reservation conflict prevention remain future work.
+The three published demo identities identified by their original email and
+ID number are disabled by the migration. Provision a new administrator with a
+unique email and a strong supplied password. Existing other user passwords,
+roles, and active flags are preserved by reseeding. No shared/live database
+migration is run by CI.
 
-GitHub Actions keeps the required job name **Code Quality**. Missing scripts,
-lint errors, formatting differences, syntax errors, or failing tests fail the job.
-CI uses a dummy database URL for offline schema checks and needs no Supabase
-secrets. A clean installation and the same quality commands run on Node.js 24.
+## Secure seeding
 
-## Local-only files
+`npm run seed` creates lookup data without creating any accounts by default.
+Optionally supply pairs of environment variables:
 
-Keep scratch request payloads under `requests/`, `tmp/`, or in files ending in
-`.request.json`. These paths and the legacy `reservation.json` are ignored.
-Keep intentional, non-sensitive test fixtures under `tests/fixtures/` instead.
-Environment files, dependencies, generated clients, coverage, and logs are ignored.
+- `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`
+- `SEED_STAFF_EMAIL` and `SEED_STAFF_PASSWORD`
+- `SEED_MEMBER_EMAIL` and `SEED_MEMBER_PASSWORD`
 
-## Authentication and access (Phase 1)
+Passwords must be at least 16 characters and at most 72 UTF-8 bytes.
+Set secrets through the deployment environment or a local ignored `.env`;
+never put real passwords in commands committed to the repository.
+Account upserts have an empty update branch: seeding never resets a password,
+changes an existing role, or reactivates a disabled user.
 
-POST /api/auth/login accepts only an email and password JSON object. Email
-matching uses the trimmed stored spelling; passwords are never trimmed. Login
-returns a random bearer token, its lifetime in seconds, and a safe user profile.
-Send Authorization: Bearer <token> on protected requests. GET /api/auth/me
-returns the current profile; POST /api/auth/logout revokes the current token.
-Missing, expired, invalid, or revoked tokens return 401; denied roles return 403.
-Invalid login input returns 400 and invalid credentials or inactive accounts
-share the same 401 response. Database authentication failures return 503.
+## Authentication and access
 
-| Resource                        | Administrator | Staff     | Faculty / organization representative |
-| ------------------------------- | ------------- | --------- | ------------------------------------- |
-| Facilities and equipment reads  | Allowed       | Allowed   | Allowed                               |
-| Facilities and equipment writes | Allowed       | Allowed   | Forbidden                             |
-| Reservation creation            | Self          | Self      | Self                                  |
-| Reservation reads and edits     | All           | All       | Own only                              |
-| Database diagnostic             | Allowed       | Forbidden | Forbidden                             |
+`POST /api/auth/login` accepts only email and password. Use the returned token
+in `Authorization: Bearer <token>`. `GET /api/auth/me` returns the safe user
+profile; `POST /api/auth/logout` revokes the token.
 
-Reservation ownership comes from the authenticated database user, never request
-body userId, roleId, or requestedBy. Status transitions, scheduling validation,
-and approval/cancellation endpoints are deferred to the later approved phases.
-The public health endpoint reports process health without database details.
+Sessions expire after one hour. Only SHA-256 token hashes are stored in
+PostgreSQL. Sessions and the 10-attempts-per-IP-per-15-minutes login limit are
+shared across instances. Expired entries are removed at login. Password changes
+and deactivation revoke sessions; active status and role are reread on every
+request. Authentication fails closed when the database is unavailable.
 
-Tokens contain 256 random bits and only their SHA-256 hashes are stored on the
-server. Sessions expire after one hour and logout revokes immediately. The user,
-active flag, and role are reloaded on every request. There is no schema change.
-Sessions are held in memory: restarting signs everyone out, and multiple API
-instances require a shared session store before deployment. Login is limited to
-10 attempts per IP per 15 minutes, including successful attempts, with bounded
-in-memory storage. The app does not trust forwarded IP headers. A deployment
-behind a proxy needs an explicitly reviewed proxy and rate-limit configuration.
-Use HTTPS outside local development; clients should keep bearer tokens in memory
-and send them only in the Authorization header, never URLs or logs.
+| Resource                                | Administrator / staff | Faculty / organization representative |
+| --------------------------------------- | --------------------- | ------------------------------------- |
+| Facilities/equipment reads              | Allowed               | Allowed                               |
+| Facilities/equipment writes and repairs | Allowed               | Forbidden                             |
+| Create reservation                      | Self                  | Self                                  |
+| Reservation reads, edits, history       | All                   | Own only                              |
+| Approve/reject/complete reservation     | Allowed               | Forbidden                             |
+| Cancel reservation                      | All                   | Own only                              |
+| Loan list                               | All                   | Own only                              |
+| Approved checkout / return              | Allowed               | Forbidden                             |
+| Database diagnostic                     | Administrator only    | Forbidden                             |
 
-Authentication HTTP tests run real Express middleware, routes, controllers, and
-bcrypt with a stubbed Prisma boundary. They do not verify a live database.
+HTTPS is required outside local development. Keep tokens out of URLs and logs.
+The app does not trust forwarded IP headers; configure proxy trust and ingress
+rate limits explicitly for the actual deployment.
+
+## Reservations
+
+Create with `POST /api/reservations`: `facilityId`, nonblank `purpose`,
+future `startDatetime` and `endDatetime`, optionally
+`equipmentItems: [{ equipmentId, quantity }]`. Requester identity always comes
+from the authenticated account. Dates must be valid ISO timestamps with timezone.
+
+Only Pending requests may be edited using `PUT /api/reservations/:id`.
+Partial date edits are checked against the stored other endpoint.
+Facilities must be Available. Pending and Approved requests block overlapping
+times; adjacent intervals are allowed. PostgreSQL's exclusion constraint protects
+against concurrent overlap even when requests arrive together.
+
+`PATCH /api/reservations/:id/status` accepts `{ status }`:
+
+- Pending → Approved, Rejected, or Cancelled.
+- Approved → Cancelled or Completed.
+- Completed is allowed only after the end time; terminal states cannot reopen.
+
+Approval records the authenticated approver and rechecks availability.
+`GET /api/reservations/:id/history` returns reservation and allocation audit
+events. SQL triggers retain before/after values and the transaction actor.
+
+## Equipment and loans
+
+Equipment quantities and identifiers must be bounded integers. Names cannot be
+blank. Inventory availability is derived and cannot be manually edited.
+
+Reservation allocations physically hold stock from request creation until
+cancellation, rejection, or completion. This conservative policy holds stock even
+for future reservations; nonoverlapping reservations do not share held units.
+Allocation replacement is atomic. Separate ad-hoc loans consume unallocated
+stock, so they cannot double-spend reserved quantities.
+
+`POST /api/loans` records a staff-approved checkout with `equipmentId`,
+`userId`, positive `quantity`, future `dueDate`, and optional `conditionOut`.
+The borrower must be active. The approver comes from authentication.
+
+`POST /api/loans/:id/return` takes `conditionIn`: Good, Fair, or Damaged.
+A loan is returned as a whole; repeated or concurrent returns cannot add stock
+twice. Good/Fair returns restore availability. Damaged returns increase
+`damagedQuantity` and remain unavailable until staff record
+`POST /api/equipment/:id/repair` with `{ quantity }`. Repair events are immutable.
+
+Stock updates are atomic in database triggers. Total stock cannot be reduced
+below committed and damaged units. Inactive/Damaged equipment cannot be issued;
+equipment cannot be retired with outstanding commitments. Facilities cannot be
+deactivated while blocking reservations remain.
+
+## Checks and tests
+
+`npm run quality` runs Prisma validation, Prettier/Prisma formatting, JavaScript
+syntax checks, ESLint, and unit/HTTP tests. These tests use a stubbed DB boundary.
+`npm run audit` fails on high/critical dependency advisories.
+
+Run `npm run test:integration` with an explicitly supplied `TEST_DATABASE_URL`
+pointing to a loopback PostgreSQL database whose name ends in `_test`.
+It has no fallback to `DATABASE_URL` and fails if configuration is missing.
+Tests create random isolated schemas, apply the repository migrations, exercise
+real HTTP/Prisma/PostgreSQL behavior, and remove only their schemas afterward.
+They test concurrent bookings/loans, lifecycle and ownership, stock release,
+damaged returns and repair, session revocation/sharing, safe seeding, and migration
+rollback. They require schema/extension creation permission in this test database.
+
+GitHub Actions retains the required **Code Quality** job name. All checks,
+PostgreSQL integration tests, client generation, and dependency audit are
+mandatory. CI starts an isolated PostgreSQL 16 service and uses no Supabase secrets.

@@ -5,6 +5,7 @@ module.exports = [
     {
         ignores: [
             "node_modules/**",
+            "tmp/**",
             "generated/**",
             "coverage/**",
             ".agents/**",

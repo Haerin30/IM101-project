@@ -155,7 +155,8 @@ const updateFacility = async (req, res) => {
             updateData.buildingId = num;
         }
 
-        const ftId = facilityTypeId !== undefined ? facilityTypeId : facility_type_id;
+        const ftId =
+            facilityTypeId !== undefined ? facilityTypeId : facility_type_id;
         if (ftId !== undefined) {
             const num = Number(ftId);
             if (isNaN(num)) {

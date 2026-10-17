@@ -37,7 +37,6 @@ const reservationStatuses = [
     "Completed",
 ];
 
-
 async function main() {
     console.log("Seeding database...");
 
@@ -48,7 +47,9 @@ async function main() {
             update: {},
             create: { typeName },
         });
-        console.log(` - FacilityType: ${type.typeName} (ID: ${type.facilityTypeId})`);
+        console.log(
+            ` - FacilityType: ${type.typeName} (ID: ${type.facilityTypeId})`,
+        );
     }
 
     console.log("Seeding Equipment Categories...");
@@ -60,7 +61,7 @@ async function main() {
         });
 
         console.log(
-            ` - EquipmentCategory: ${category.categoryName} (ID: ${category.categoryId})`
+            ` - EquipmentCategory: ${category.categoryName} (ID: ${category.categoryId})`,
         );
     }
 
@@ -74,7 +75,9 @@ async function main() {
                 floorCount: building.floorCount,
             },
         });
-        console.log(` - Building: ${b.buildingName} (ID: ${b.buildingId}, Floors: ${b.floorCount})`);
+        console.log(
+            ` - Building: ${b.buildingName} (ID: ${b.buildingId}, Floors: ${b.floorCount})`,
+        );
     }
 
     console.log("Seeding completed successfully.");
@@ -88,7 +91,7 @@ async function main() {
         });
 
         console.log(
-            ` - ReservationStatus: ${status.statusName} (ID: ${status.statusId})`
+            ` - ReservationStatus: ${status.statusName} (ID: ${status.statusId})`,
         );
     }
 
@@ -175,7 +178,7 @@ async function main() {
         });
 
         console.log(
-            ` - User: ${user.fname} ${user.lname} (ID: ${user.userId})`
+            ` - User: ${user.fname} ${user.lname} (ID: ${user.userId})`,
         );
     }
 }

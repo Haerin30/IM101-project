@@ -1,0 +1,10 @@
+node_modules/
+generated/
+coverage/
+.agents/
+.claude/
+.windsurf/
+package-lock.json
+skills-lock.json
+prisma/migrations/
+prisma/schema.prisma

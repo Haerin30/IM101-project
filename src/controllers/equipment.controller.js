@@ -269,10 +269,7 @@ const updateEquipment = async (req, res) => {
         if (totalQuantity !== undefined) {
             const parsedTotalQuantity = parseInt(totalQuantity, 10);
 
-            if (
-                Number.isNaN(parsedTotalQuantity) ||
-                parsedTotalQuantity <= 0
-            ) {
+            if (Number.isNaN(parsedTotalQuantity) || parsedTotalQuantity <= 0) {
                 return res.status(400).json({
                     success: false,
                     message: "totalQuantity must be greater than 0.",
@@ -320,8 +317,7 @@ const updateEquipment = async (req, res) => {
             updateData.totalQuantity ?? existingEquipment.totalQuantity;
 
         const newAvailableQuantity =
-            updateData.availableQuantity ??
-            existingEquipment.availableQuantity;
+            updateData.availableQuantity ?? existingEquipment.availableQuantity;
 
         if (
             newAvailableQuantity < 0 ||

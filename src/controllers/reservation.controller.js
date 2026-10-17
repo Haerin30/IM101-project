@@ -2,13 +2,8 @@ const prisma = require("../prisma");
 
 const createReservation = async (req, res) => {
     try {
-        const {
-            facilityId,
-            requestedBy,
-            purpose,
-            startDatetime,
-            endDatetime,
-        } = req.body;
+        const { facilityId, requestedBy, purpose, startDatetime, endDatetime } =
+            req.body;
 
         // Check if the facility exists
         const facility = await prisma.facility.findUnique({
@@ -209,11 +204,7 @@ const updateReservation = async (req, res) => {
             });
         }
 
-        const {
-            purpose,
-            startDatetime,
-            endDatetime,
-        } = req.body;
+        const { purpose, startDatetime, endDatetime } = req.body;
 
         // Build the update object using only allowed fields
         const updateData = {};

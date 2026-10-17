@@ -4,7 +4,7 @@ const {
     createReservation,
     getReservations,
     getReservationById,
-    updateReservation
+    updateReservation,
 } = require("../controllers/reservation.controller");
 
 const router = express.Router();

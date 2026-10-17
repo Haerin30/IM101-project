@@ -143,3 +143,59 @@ rollback. They require schema/extension creation permission in this test databas
 GitHub Actions retains the required **Code Quality** job name. All checks,
 PostgreSQL integration tests, client generation, and dependency audit are
 mandatory. CI starts an isolated PostgreSQL 16 service and uses no Supabase secrets.
+
+## Maintenance requests
+
+All /api/maintenance-requests endpoints require bearer authentication.
+Responses follow the existing success/data or success/message JSON convention.
+
+| Method and path                            | Purpose and accepted body fields                                                                                  |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| POST /api/maintenance-requests             | Create an Open request: description and at least one of facilityId/equipmentId; staff/admin may also set priority |
+| GET /api/maintenance-requests              | List visible requests in requestId order                                                                          |
+| GET /api/maintenance-requests/:id          | View a visible request                                                                                            |
+| PATCH /api/maintenance-requests/:id        | Edit description; staff/admin may also edit priority                                                              |
+| PATCH /api/maintenance-requests/:id/assign | Assign an active maintenance staff user using assignedStaffId                                                     |
+| PATCH /api/maintenance-requests/:id/status | Advance status; resolutionNotes is required for Resolved                                                          |
+| GET /api/maintenance-requests/:id/history  | View the request's ordered AuditLog snapshots and actor IDs                                                       |
+
+Faculty/organization representatives can create requests, list/view their own
+requests and history, and edit their own description only while Open. Staff and
+administrators can view all requests, edit description/priority, assign staff,
+and advance workflow. Administrators have all management permissions, but the
+same immutable history and workflow rules apply. Eligible assignees must have
+the Facility/Maintenance Staff role and be active; administrator status alone
+does not make someone a technician.
+
+The only transitions are Open to In Progress, then In Progress to Resolved.
+Resolving records the server timestamp and nonblank resolution notes. Resolved
+requests cannot be edited, reassigned, or reopened by any role. Assignment does
+not advance status. Assignment is optional before starting work. There is no
+maintenance deletion endpoint. Facility/equipment references and reporting
+identity cannot be changed after creation. Existing inactive assets can still
+be reported for maintenance; creating requests never changes asset availability.
+
+Descriptions and resolution notes are trimmed and limited to 2000 characters.
+IDs must be positive integers referring to existing records. Either asset ID or
+both can be supplied; supplied IDs cannot be null. Priorities are Low, Normal,
+High, Urgent (default Normal). Unknown or unauthorized fields, including
+reportedBy, userId, roleId, resolvedAt, and inline status/assignment fields,
+are rejected with 400. Forbidden ownership/actions return 403, missing records
+404, and invalid transitions or edits to closed requests 409. Faculty cannot
+set priority; staff triage their reports.
+
+The additive 20261018020000_maintenance_audit migration attaches the existing
+audit_change function to MaintenanceRequest inserts, updates and deletes.
+It changes no models, columns, existing rows, or AuditLog relationships and does
+not backfill historical events. Apply it after the existing integrity migration
+through the normal reviewed deployment process. API writes use the existing
+serializable transaction helper, which supplies app.user_id for audit attribution.
+Concurrent conflicting edits return 409 and can be retried after reloading.
+Direct database writes are also audited; without actor context changedBy is null.
+Workflow permissions are enforced by the API; direct database access must remain
+restricted to trusted operators.
+
+Maintenance unit tests cover validation, ownership, field restrictions, assignment,
+transitions, resolution, and history serialization. The PostgreSQL integration
+suite additionally exercises every authenticated endpoint, actual audit snapshots,
+actor IDs, atomic rollback, concurrent transitions, and unchanged asset stock.

@@ -1,0 +1,10 @@
+const router = require("express").Router();
+const c = require("../controllers/maintenance.controller");
+router.post("/", c.createRequest);
+router.get("/", c.listRequests);
+router.get("/:id", c.getRequest);
+router.patch("/:id", c.editRequest);
+router.patch("/:id/assign", c.assignRequest);
+router.patch("/:id/status", c.updateStatus);
+router.get("/:id/history", c.getHistory);
+module.exports = router;

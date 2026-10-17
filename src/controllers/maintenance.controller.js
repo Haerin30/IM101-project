@@ -72,15 +72,19 @@ const createRequest = v.endpoint(async (req, res) => {
                 "Facility not found.",
                 404,
             );
-        if (changes.equipmentId)
+        if (changes.equipmentId) {
+            const equipment = await tx.equipment.findUnique({
+                where: { equipmentId: changes.equipmentId },
+                select: { equipmentId: true, homeFacilityId: true },
+            });
+            v.check(equipment, "Equipment not found.", 404);
             v.check(
-                await tx.equipment.findUnique({
-                    where: { equipmentId: changes.equipmentId },
-                    select: { equipmentId: true },
-                }),
-                "Equipment not found.",
-                404,
+                !changes.facilityId ||
+                    equipment.homeFacilityId === null ||
+                    equipment.homeFacilityId === changes.facilityId,
+                "Equipment home facility does not match facilityId.",
             );
+        }
         return tx.maintenanceRequest.create({
             data: { ...changes, reportedBy: req.user.userId, status: "Open" },
         });
@@ -171,6 +175,20 @@ const updateStatus = v.endpoint(async (req, res) => {
             { Open: "In Progress", "In Progress": "Resolved" }[row.status] ===
                 b.status,
             "Invalid maintenance status transition.",
+            409,
+        );
+        v.check(
+            row.assignedStaffId,
+            "Assign active maintenance staff before progressing this request.",
+            409,
+        );
+        const assignee = await tx.user.findUnique({
+            where: { userId: row.assignedStaffId },
+            select: { isActive: true, role: { select: { roleName: true } } },
+        });
+        v.check(
+            assignee?.isActive && assignee.role.roleName === ROLES.STAFF,
+            "Reassign this request to active maintenance staff before progressing.",
             409,
         );
         return tx.maintenanceRequest.update({

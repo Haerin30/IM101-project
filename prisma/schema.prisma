@@ -100,14 +100,15 @@ model Facility {
 }
 
 model Equipment {
-  equipmentId       Int    @id @default(autoincrement())
+  equipmentId       Int     @id @default(autoincrement())
   categoryId        Int
   homeFacilityId    Int?
   equipmentName     String
   totalQuantity     Int
   availableQuantity Int
-  damagedQuantity   Int    @default(0)
-  conditionStatus   String @default("Good")
+  damagedQuantity   Int     @default(0)
+  conditionStatus   String? @default("Good")
+  isActive          Boolean @default(true)
 
   category     EquipmentCategory @relation(fields: [categoryId], references: [categoryId])
   homeFacility Facility?         @relation(fields: [homeFacilityId], references: [facilityId])

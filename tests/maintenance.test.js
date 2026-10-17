@@ -1,7 +1,10 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ROLES } = require("../src/auth");
-let row, assigned, query;
+let row,
+    assigned,
+    query,
+    homeFacilityId = null;
 const db = {
     $queryRaw: async () => [],
     $transaction: async (work) => work(db),
@@ -11,7 +14,7 @@ const db = {
     },
     equipment: {
         findUnique: async ({ where }) =>
-            where.equipmentId === 1 ? { equipmentId: 1 } : null,
+            where.equipmentId === 1 ? { equipmentId: 1, homeFacilityId } : null,
     },
     user: { findUnique: async () => assigned },
     maintenanceRequest: {
@@ -267,4 +270,74 @@ test("maintenance endpoints reject forbidden fields and empty patches", async ()
     assert.equal(created.statusCode, 201);
     assert.equal(created.body.data.equipmentId, 1);
     assert.equal(created.body.data.priority, "High");
+});
+
+test("maintenance progression requires an eligible current assignee and supports reassignment", async () => {
+    for (const status of ["Open", "In Progress"]) {
+        row = { requestId: 1, reportedBy: 1, status, assignedStaffId: null };
+        const body =
+            status === "Open"
+                ? { status: "In Progress" }
+                : { status: "Resolved", resolutionNotes: "Fixed" };
+        assert.equal(
+            (await call("updateStatus", body, ROLES.ADMIN)).statusCode,
+            409,
+        );
+        row.assignedStaffId = 2;
+        for (const user of [
+            null,
+            { isActive: false, role: { roleName: ROLES.STAFF } },
+            { isActive: true, role: { roleName: ROLES.MEMBER } },
+        ]) {
+            assigned = user;
+            assert.equal(
+                (await call("updateStatus", body, ROLES.STAFF)).statusCode,
+                409,
+            );
+        }
+        assigned = { isActive: true, role: { roleName: ROLES.STAFF } };
+        assert.equal(
+            (await call("assignRequest", { assignedStaffId: 3 }, ROLES.ADMIN))
+                .statusCode,
+            200,
+        );
+        assert.equal(
+            (await call("updateStatus", body, ROLES.STAFF)).statusCode,
+            200,
+        );
+    }
+});
+test("maintenance facility and equipment must match unless equipment is portable", async () => {
+    for (const home of [null, 1, 2]) {
+        homeFacilityId = home;
+        assert.equal(
+            (
+                await call("createRequest", {
+                    facilityId: 1,
+                    equipmentId: 1,
+                    description: "Fault",
+                })
+            ).statusCode,
+            home === 2 ? 400 : 201,
+        );
+        assert.equal(
+            (
+                await call("createRequest", {
+                    equipmentId: 1,
+                    description: "Fault",
+                })
+            ).statusCode,
+            201,
+        );
+        assert.equal(
+            (
+                await call("createRequest", {
+                    facilityId: 1,
+                    description: "Fault",
+                })
+            ).statusCode,
+            201,
+        );
+    }
+    homeFacilityId = null;
 });

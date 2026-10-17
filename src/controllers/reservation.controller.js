@@ -1,9 +1,11 @@
 const prisma = require("../prisma");
+const { ROLES } = require("../auth");
+const isMember = (req) => req.user.role.roleName === ROLES.MEMBER;
 
 const createReservation = async (req, res) => {
     try {
-        const { facilityId, requestedBy, purpose, startDatetime, endDatetime } =
-            req.body;
+        const requestedBy = req.user.userId;
+        const { facilityId, purpose, startDatetime, endDatetime } = req.body;
 
         // Check if the facility exists
         const facility = await prisma.facility.findUnique({
@@ -16,20 +18,6 @@ const createReservation = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: "Facility not found.",
-            });
-        }
-
-        // Check if the requesting user exists
-        const user = await prisma.user.findUnique({
-            where: {
-                userId: Number(requestedBy),
-            },
-        });
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "Requesting user not found.",
             });
         }
 
@@ -91,6 +79,7 @@ const createReservation = async (req, res) => {
 const getReservations = async (req, res) => {
     try {
         const reservations = await prisma.reservation.findMany({
+            where: isMember(req) ? { requestedBy: req.user.userId } : {},
             include: {
                 facility: true,
                 requester: {
@@ -172,6 +161,12 @@ const getReservationById = async (req, res) => {
             });
         }
 
+        if (isMember(req) && reservation.requestedBy !== req.user.userId) {
+            return res
+                .status(403)
+                .json({ success: false, message: "Forbidden." });
+        }
+
         res.json({
             success: true,
             data: reservation,
@@ -202,6 +197,15 @@ const updateReservation = async (req, res) => {
                 success: false,
                 message: "Reservation not found.",
             });
+        }
+
+        if (
+            isMember(req) &&
+            existingReservation.requestedBy !== req.user.userId
+        ) {
+            return res
+                .status(403)
+                .json({ success: false, message: "Forbidden." });
         }
 
         const { purpose, startDatetime, endDatetime } = req.body;

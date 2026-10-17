@@ -1,425 +1,107 @@
 const prisma = require("../prisma");
-
-const getEquipment = async (req, res) => {
-    try {
-        const equipment = await prisma.equipment.findMany({
-            include: {
-                category: true,
-                homeFacility: {
-                    include: {
-                        building: true,
-                    },
-                },
-            },
-            orderBy: {
-                equipmentId: "asc",
-            },
-        });
-
-        res.status(200).json({
-            success: true,
-            data: equipment,
-        });
-    } catch (error) {
-        console.error("Error fetching equipment:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch equipment.",
-        });
-    }
+const v = require("../validation");
+const include = {
+    category: true,
+    homeFacility: { include: { building: true } },
 };
-
-const getEquipmentById = async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-
-    if (Number.isNaN(id)) {
-        return res.status(400).json({
-            success: false,
-            message: "Invalid equipment ID. ID must be a number.",
-        });
+function fields(b, creating) {
+    v.body(b);
+    const data = {};
+    for (const key of ["categoryId", "totalQuantity"]) {
+        if (creating || b[key] !== undefined) {
+            v.check(b[key] !== undefined, key + " is required.");
+            data[key] = v.integer(b[key], key);
+        }
     }
-
-    try {
-        const equipment = await prisma.equipment.findUnique({
-            where: {
-                equipmentId: id,
-            },
-            include: {
-                category: true,
-                homeFacility: {
-                    include: {
-                        building: true,
-                    },
-                },
-            },
-        });
-
-        if (!equipment) {
-            return res.status(404).json({
-                success: false,
-                message: `Equipment with ID ${id} not found.`,
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: equipment,
-        });
-    } catch (error) {
-        console.error("Error fetching equipment:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch equipment.",
-        });
+    if (b.homeFacilityId !== undefined)
+        data.homeFacilityId =
+            b.homeFacilityId === null
+                ? null
+                : v.integer(b.homeFacilityId, "homeFacilityId");
+    if (creating || b.equipmentName !== undefined)
+        data.equipmentName = v.text(b.equipmentName, "equipmentName", 200);
+    if (b.conditionStatus !== undefined) {
+        v.check(
+            ["Good", "Fair", "Damaged", "Inactive"].includes(b.conditionStatus),
+            "Invalid conditionStatus.",
+        );
+        data.conditionStatus = b.conditionStatus;
     }
-};
-
-const createEquipment = async (req, res) => {
-    try {
-        const {
-            categoryId,
-            homeFacilityId,
-            equipmentName,
-            totalQuantity,
-            availableQuantity,
-            conditionStatus,
-        } = req.body;
-
-        if (
-            categoryId === undefined ||
-            equipmentName === undefined ||
-            totalQuantity === undefined
-        ) {
-            return res.status(400).json({
-                success: false,
-                message:
-                    "categoryId, equipmentName, and totalQuantity are required.",
-            });
-        }
-
-        const parsedCategoryId = parseInt(categoryId, 10);
-        const parsedTotalQuantity = parseInt(totalQuantity, 10);
-
-        if (
-            Number.isNaN(parsedCategoryId) ||
-            Number.isNaN(parsedTotalQuantity)
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "categoryId and totalQuantity must be numbers.",
-            });
-        }
-
-        let parsedHomeFacilityId = null;
-
-        if (homeFacilityId !== undefined && homeFacilityId !== null) {
-            parsedHomeFacilityId = parseInt(homeFacilityId, 10);
-
-            if (Number.isNaN(parsedHomeFacilityId)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "homeFacilityId must be a number.",
-                });
-            }
-        }
-
-        let parsedAvailableQuantity = parsedTotalQuantity;
-
-        if (availableQuantity !== undefined) {
-            parsedAvailableQuantity = parseInt(availableQuantity, 10);
-
-            if (Number.isNaN(parsedAvailableQuantity)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "availableQuantity must be a number.",
-                });
-            }
-        }
-
-        if (parsedTotalQuantity <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: "totalQuantity must be greater than 0.",
-            });
-        }
-
-        if (
-            parsedAvailableQuantity < 0 ||
-            parsedAvailableQuantity > parsedTotalQuantity
-        ) {
-            return res.status(400).json({
-                success: false,
-                message:
-                    "availableQuantity must be between 0 and totalQuantity.",
-            });
-        }
-
-        const equipment = await prisma.equipment.create({
-            data: {
-                categoryId: parsedCategoryId,
-                homeFacilityId: parsedHomeFacilityId,
-                equipmentName: equipmentName.trim(),
-                totalQuantity: parsedTotalQuantity,
-                availableQuantity: parsedAvailableQuantity,
-                conditionStatus: conditionStatus?.trim() || "Good",
-            },
-            include: {
-                category: true,
-                homeFacility: {
-                    include: {
-                        building: true,
-                    },
-                },
-            },
-        });
-
-        res.status(201).json({
-            success: true,
-            message: "Equipment created successfully.",
-            data: equipment,
-        });
-    } catch (error) {
-        console.error("Error creating equipment:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to create equipment.",
-        });
+    // Stock is derived by PostgreSQL from allocations and open loans.
+    if (b.availableQuantity !== undefined) {
+        const available = v.integer(
+            b.availableQuantity,
+            "availableQuantity",
+            0,
+        );
+        v.check(
+            creating && available === data.totalQuantity,
+            "availableQuantity is derived from loans and reservations; new stock must be fully available.",
+        );
     }
-};
-
-const updateEquipment = async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-
-    if (Number.isNaN(id)) {
-        return res.status(400).json({
-            success: false,
-            message: "Invalid equipment ID. ID must be a number.",
+    v.check(Object.keys(data).length, "No editable fields provided.");
+    return data;
+}
+const getEquipment = v.endpoint(async (req, res) => {
+    res.json({
+        success: true,
+        data: await prisma.equipment.findMany({
+            include,
+            orderBy: { equipmentId: "asc" },
+        }),
+    });
+});
+const getEquipmentById = v.endpoint(async (req, res) => {
+    const data = await prisma.equipment.findUnique({
+        where: { equipmentId: v.integer(req.params.id, "equipmentId") },
+        include,
+    });
+    v.check(data, "Equipment not found.", 404);
+    res.json({ success: true, data });
+});
+const createEquipment = v.endpoint(async (req, res) => {
+    const data = fields(req.body, true);
+    data.availableQuantity = data.totalQuantity;
+    const row = await v.transaction(prisma, req, (tx) =>
+        tx.equipment.create({ data, include }),
+    );
+    res.status(201).json({ success: true, data: row });
+});
+const updateEquipment = v.endpoint(async (req, res) => {
+    const id = v.integer(req.params.id, "equipmentId"),
+        data = fields(req.body, false);
+    const row = await v.transaction(prisma, req, (tx) =>
+        tx.equipment.update({ where: { equipmentId: id }, data, include }),
+    );
+    res.json({ success: true, data: row });
+});
+const deleteEquipment = v.endpoint(async (req, res) => {
+    const id = v.integer(req.params.id, "equipmentId");
+    const data = await v.transaction(prisma, req, (tx) =>
+        tx.equipment.update({
+            where: { equipmentId: id },
+            data: { conditionStatus: "Inactive" },
+            include,
+        }),
+    );
+    res.json({ success: true, data });
+});
+const repairEquipment = v.endpoint(async (req, res) => {
+    const id = v.integer(req.params.id, "equipmentId"),
+        quantity = v.integer(v.body(req.body).quantity, "quantity");
+    const data = await v.transaction(prisma, req, async (tx) => {
+        await tx.equipmentRepair.create({
+            data: { equipmentId: id, quantity, repairedBy: req.user.userId },
         });
-    }
-
-    try {
-        const existingEquipment = await prisma.equipment.findUnique({
-            where: {
-                equipmentId: id,
-            },
-        });
-
-        if (!existingEquipment) {
-            return res.status(404).json({
-                success: false,
-                message: `Equipment with ID ${id} not found.`,
-            });
-        }
-
-        const {
-            categoryId,
-            homeFacilityId,
-            equipmentName,
-            totalQuantity,
-            availableQuantity,
-            conditionStatus,
-        } = req.body;
-
-        const updateData = {};
-
-        if (categoryId !== undefined) {
-            const parsedCategoryId = parseInt(categoryId, 10);
-
-            if (Number.isNaN(parsedCategoryId)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "categoryId must be a number.",
-                });
-            }
-
-            updateData.categoryId = parsedCategoryId;
-        }
-
-        if (homeFacilityId !== undefined) {
-            if (homeFacilityId === null) {
-                updateData.homeFacilityId = null;
-            } else {
-                const parsedHomeFacilityId = parseInt(homeFacilityId, 10);
-
-                if (Number.isNaN(parsedHomeFacilityId)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "homeFacilityId must be a number or null.",
-                    });
-                }
-
-                updateData.homeFacilityId = parsedHomeFacilityId;
-            }
-        }
-
-        if (equipmentName !== undefined) {
-            if (!equipmentName.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "equipmentName cannot be empty.",
-                });
-            }
-
-            updateData.equipmentName = equipmentName.trim();
-        }
-
-        if (totalQuantity !== undefined) {
-            const parsedTotalQuantity = parseInt(totalQuantity, 10);
-
-            if (Number.isNaN(parsedTotalQuantity) || parsedTotalQuantity <= 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: "totalQuantity must be greater than 0.",
-                });
-            }
-
-            updateData.totalQuantity = parsedTotalQuantity;
-        }
-
-        if (availableQuantity !== undefined) {
-            const parsedAvailableQuantity = parseInt(availableQuantity, 10);
-
-            if (
-                Number.isNaN(parsedAvailableQuantity) ||
-                parsedAvailableQuantity < 0
-            ) {
-                return res.status(400).json({
-                    success: false,
-                    message: "availableQuantity must be 0 or greater.",
-                });
-            }
-
-            updateData.availableQuantity = parsedAvailableQuantity;
-        }
-
-        if (conditionStatus !== undefined) {
-            if (!conditionStatus.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    message: "conditionStatus cannot be empty.",
-                });
-            }
-
-            updateData.conditionStatus = conditionStatus.trim();
-        }
-
-        if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: "No valid fields provided to update.",
-            });
-        }
-
-        const newTotalQuantity =
-            updateData.totalQuantity ?? existingEquipment.totalQuantity;
-
-        const newAvailableQuantity =
-            updateData.availableQuantity ?? existingEquipment.availableQuantity;
-
-        if (
-            newAvailableQuantity < 0 ||
-            newAvailableQuantity > newTotalQuantity
-        ) {
-            return res.status(400).json({
-                success: false,
-                message:
-                    "availableQuantity must be between 0 and totalQuantity.",
-            });
-        }
-
-        const equipment = await prisma.equipment.update({
-            where: {
-                equipmentId: id,
-            },
-            data: updateData,
-            include: {
-                category: true,
-                homeFacility: {
-                    include: {
-                        building: true,
-                    },
-                },
-            },
-        });
-
-        res.status(200).json({
-            success: true,
-            message: "Equipment updated successfully.",
-            data: equipment,
-        });
-    } catch (error) {
-        console.error("Error updating equipment:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to update equipment.",
-        });
-    }
-};
-
-const deleteEquipment = async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-
-    if (Number.isNaN(id)) {
-        return res.status(400).json({
-            success: false,
-            message: "Invalid equipment ID. ID must be a number.",
-        });
-    }
-
-    try {
-        const existingEquipment = await prisma.equipment.findUnique({
-            where: {
-                equipmentId: id,
-            },
-        });
-
-        if (!existingEquipment) {
-            return res.status(404).json({
-                success: false,
-                message: `Equipment with ID ${id} not found.`,
-            });
-        }
-
-        const deactivatedEquipment = await prisma.equipment.update({
-            where: {
-                equipmentId: id,
-            },
-            data: {
-                conditionStatus: "Inactive",
-            },
-            include: {
-                category: true,
-                homeFacility: {
-                    include: {
-                        building: true,
-                    },
-                },
-            },
-        });
-
-        res.status(200).json({
-            success: true,
-            message: "Equipment deactivated successfully.",
-            data: deactivatedEquipment,
-        });
-    } catch (error) {
-        console.error("Error deactivating equipment:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to deactivate equipment.",
-        });
-    }
-};
-
+        return tx.equipment.findUnique({ where: { equipmentId: id }, include });
+    });
+    res.json({ success: true, data });
+});
 module.exports = {
     getEquipment,
     getEquipmentById,
     createEquipment,
     updateEquipment,
     deleteEquipment,
+    repairEquipment,
 };

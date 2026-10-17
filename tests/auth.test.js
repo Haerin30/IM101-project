@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const bcrypt = require("bcrypt");
 const { ROLES } = require("../src/auth");
+const { memoryStore } = require("./helpers");
 const password = "test-only-password";
 const users = Object.values(ROLES).map((roleName, index) => ({
     userId: index + 1,
@@ -31,10 +32,11 @@ const database = {
     equipment: { findMany: async () => [] },
     facility: {
         findMany: async () => [],
-        findUnique: async () => ({ facilityId: 1 }),
+        findUnique: async () => ({ facilityId: 1, status: "Available" }),
     },
     reservationStatus: { findUnique: async () => ({ statusId: 1 }) },
     reservation: {
+        findFirst: async () => null,
         findMany: async (query) => {
             lastQuery = query;
             return [];
@@ -47,6 +49,8 @@ const database = {
         update: async ({ data }) => data,
     },
 };
+database.$transaction = async (work) => work(database);
+database.$queryRaw = async () => [];
 // Replace only the database boundary; exercise real Express routes and controllers.
 require.cache[require.resolve("../src/prisma")] = { exports: database };
 const { createApp } = require("../src/app");
@@ -55,7 +59,7 @@ test("authentication and authorization through HTTP", async (t) => {
     let now = 0;
     const server = createApp({
         database,
-        authOptions: { now: () => now },
+        authOptions: { now: () => now, store: memoryStore() },
     }).listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
     t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -230,15 +234,18 @@ test("authentication fails closed on database errors and unknown roles", async (
     const { createAuth } = require("../src/auth");
     let unavailable = false;
     const user = { ...users[0], role: { roleName: "Unrecognized role" } };
-    const auth = createAuth({
-        user: {
-            findUnique: async () => {
-                if (unavailable)
-                    throw new Error("private database connection string");
-                return user;
+    const auth = createAuth(
+        {
+            user: {
+                findUnique: async () => {
+                    if (unavailable)
+                        throw new Error("private database connection string");
+                    return user;
+                },
             },
         },
-    });
+        { store: memoryStore() },
+    );
     const response = {
         set() {},
         status(code) {

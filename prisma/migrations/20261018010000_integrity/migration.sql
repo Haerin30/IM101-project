@@ -159,7 +159,7 @@ END $$;
 CREATE TRIGGER loan_inventory BEFORE INSERT OR UPDATE OR DELETE ON "EquipmentLoan" FOR EACH ROW EXECUTE FUNCTION loan_stock();
 
 -- Invoker rights: callers still need normal table permissions. Never SECURITY DEFINER.
-CREATE FUNCTION transition_reservation(reservation_id integer, next_status text, actor_id integer) RETURNS integer LANGUAGE plpgsql AS $$
+CREATE PROCEDURE transition_reservation(reservation_id integer, next_status text, actor_id integer) LANGUAGE plpgsql AS $$
 DECLARE row_data "Reservation"; actor_role text; target integer;
 BEGIN
  SELECT * INTO row_data FROM "Reservation" WHERE "reservationId"=reservation_id FOR UPDATE;
@@ -171,7 +171,6 @@ BEGIN
  SELECT "statusId" INTO target FROM "ReservationStatus" WHERE "statusName"=next_status;
  PERFORM set_config('app.user_id',actor_id::text,true);
  UPDATE "Reservation" SET "statusId"=target,"approvedBy"=CASE WHEN next_status='Approved' THEN actor_id ELSE "approvedBy" END WHERE "reservationId"=reservation_id;
- RETURN reservation_id;
 END $$;
 
 CREATE FUNCTION audit_change() RETURNS trigger LANGUAGE plpgsql AS $$

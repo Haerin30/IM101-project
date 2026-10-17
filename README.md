@@ -12,7 +12,7 @@ Run `npm start` or `npm run dev` (Node's built-in watcher).
 
 The PostgreSQL connection explicitly uses UTC; API timestamps must include a
 timezone. Stored timestamps use `timestamptz`. Deploy the application and migration
-together: this version requires the new tables, triggers, and stored function.
+together: this version requires the new tables, triggers, and stored procedure.
 
 ## Migration and existing data
 

@@ -195,7 +195,7 @@ const transitionReservation = v.endpoint(async (req, res) => {
                 "Reservation has not ended.",
                 409,
             );
-        await tx.$queryRaw`SELECT transition_reservation(${id}, ${b.status}, ${req.user.userId})`;
+        await tx.$executeRaw`CALL transition_reservation(${id}, ${b.status}, ${req.user.userId})`;
         return tx.reservation.findUnique({
             where: { reservationId: id },
             include,

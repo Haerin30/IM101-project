@@ -123,6 +123,385 @@ test("PostgreSQL integrity and API workflows", async (t) => {
         memberToken = await login(member.email);
     assert.ok(adminToken);
     assert.ok(memberToken);
+    await t.test(
+        "maintenance API, serializable workflow and PostgreSQL audit",
+        async () => {
+            const staffUser = await db.user.create({
+                data: {
+                    roleId: roles.find(
+                        (r) => r.roleName === "Facility/Maintenance Staff",
+                    ).roleId,
+                    email: "staff@example.test",
+                    fname: "Staff",
+                    lname: "Test",
+                    passwordHash: hash,
+                },
+            });
+            const other = await db.user.create({
+                data: {
+                    roleId: member.roleId,
+                    email: "maintenance-other@example.test",
+                    fname: "Other",
+                    lname: "Test",
+                    passwordHash: hash,
+                },
+            });
+            const staffToken = await login(staffUser.email),
+                otherToken = await login(other.email);
+            const root = "/api/maintenance-requests";
+            const payload = {
+                description: " Leaking pipe ",
+                facilityId: facility.facilityId,
+                equipmentId: equipment.equipmentId,
+            };
+            for (const [suffix, method, body] of [
+                ["", "POST", payload],
+                ["", "GET"],
+                ["/1", "GET"],
+                ["/1", "PATCH", { description: "x" }],
+                ["/1/assign", "PATCH", { assignedStaffId: staffUser.userId }],
+                ["/1/status", "PATCH", { status: "In Progress" }],
+                ["/1/history", "GET"],
+            ])
+                assert.equal(
+                    (await request(root + suffix, method, body)).status,
+                    401,
+                );
+            for (const body of [
+                { ...payload, description: " " },
+                { ...payload, facilityId: "1x" },
+                { description: "Issue" },
+                { ...payload, reportedBy: other.userId },
+                { ...payload, roleId: 1 },
+                { ...payload, status: "Resolved" },
+            ])
+                assert.equal(
+                    (await request(root, "POST", body, memberToken)).status,
+                    400,
+                );
+            for (const key of ["facilityId", "equipmentId"])
+                assert.equal(
+                    (
+                        await request(
+                            root,
+                            "POST",
+                            { description: "Issue", [key]: 2147483647 },
+                            memberToken,
+                        )
+                    ).status,
+                    404,
+                );
+            const created = await request(root, "POST", payload, memberToken);
+            assert.equal(created.status, 201, JSON.stringify(created));
+            const id = created.body.data.requestId,
+                path = root + "/" + id;
+            assert.equal(created.body.data.reportedBy, member.userId);
+            assert.equal(created.body.data.description, "Leaking pipe");
+            assert.equal(
+                (
+                    await db.facility.findUnique({
+                        where: { facilityId: facility.facilityId },
+                    })
+                ).status,
+                "Available",
+            );
+            assert.equal(
+                (
+                    await db.equipment.findUnique({
+                        where: { equipmentId: equipment.equipmentId },
+                    })
+                ).availableQuantity,
+                3,
+            );
+            assert.equal(
+                (await request(root, "GET", undefined, otherToken)).body.data
+                    .length,
+                0,
+            );
+            assert.equal(
+                (await request(root, "GET", undefined, staffToken)).body.data
+                    .length,
+                1,
+            );
+            for (const suffix of ["", "/history"])
+                assert.equal(
+                    (await request(path + suffix, "GET", undefined, otherToken))
+                        .status,
+                    403,
+                );
+            assert.equal(
+                (
+                    await request(
+                        path,
+                        "PATCH",
+                        { description: "Changed" },
+                        otherToken,
+                    )
+                ).status,
+                403,
+            );
+            assert.equal(
+                (
+                    await request(
+                        path,
+                        "PATCH",
+                        { description: "Updated leak" },
+                        memberToken,
+                    )
+                ).status,
+                200,
+            );
+            assert.equal(
+                (
+                    await request(
+                        path,
+                        "PATCH",
+                        { priority: "Urgent" },
+                        memberToken,
+                    )
+                ).status,
+                400,
+            );
+            assert.equal(
+                (
+                    await request(
+                        path + "/assign",
+                        "PATCH",
+                        { assignedStaffId: staffUser.userId },
+                        memberToken,
+                    )
+                ).status,
+                403,
+            );
+            assert.equal(
+                (
+                    await request(
+                        path + "/status",
+                        "PATCH",
+                        { status: "In Progress" },
+                        memberToken,
+                    )
+                ).status,
+                403,
+            );
+            for (const assignedStaffId of [
+                member.userId,
+                adminUser.userId,
+                2147483647,
+            ])
+                assert.equal(
+                    (
+                        await request(
+                            path + "/assign",
+                            "PATCH",
+                            { assignedStaffId },
+                            staffToken,
+                        )
+                    ).status,
+                    400,
+                );
+            await db.user.update({
+                where: { userId: staffUser.userId },
+                data: { isActive: false },
+            });
+            assert.equal(
+                (
+                    await request(
+                        path + "/assign",
+                        "PATCH",
+                        { assignedStaffId: staffUser.userId },
+                        adminToken,
+                    )
+                ).status,
+                400,
+            );
+            await db.user.update({
+                where: { userId: staffUser.userId },
+                data: { isActive: true },
+            });
+            const activeStaffToken = await login(staffUser.email);
+            assert.equal(
+                (
+                    await request(
+                        path + "/assign",
+                        "PATCH",
+                        { assignedStaffId: staffUser.userId },
+                        activeStaffToken,
+                    )
+                ).status,
+                200,
+            );
+            assert.equal(
+                (
+                    await request(
+                        path,
+                        "PATCH",
+                        { priority: "Urgent" },
+                        activeStaffToken,
+                    )
+                ).status,
+                200,
+            );
+            assert.equal(
+                (
+                    await request(
+                        path + "/status",
+                        "PATCH",
+                        { status: "Resolved", resolutionNotes: "Fixed" },
+                        activeStaffToken,
+                    )
+                ).status,
+                409,
+            );
+            const concurrent = await Promise.all([
+                request(
+                    path + "/status",
+                    "PATCH",
+                    { status: "In Progress" },
+                    activeStaffToken,
+                ),
+                request(
+                    path + "/status",
+                    "PATCH",
+                    { status: "In Progress" },
+                    adminToken,
+                ),
+            ]);
+            assert.equal(
+                concurrent.filter((r) => r.status === 200).length,
+                1,
+                JSON.stringify(concurrent),
+            );
+            assert.equal(
+                concurrent.filter((r) => r.status === 409).length,
+                1,
+                JSON.stringify(concurrent),
+            );
+            assert.equal(
+                (
+                    await request(
+                        path,
+                        "PATCH",
+                        { description: "Late edit" },
+                        memberToken,
+                    )
+                ).status,
+                409,
+            );
+            for (const resolutionNotes of [undefined, " "])
+                assert.equal(
+                    (
+                        await request(
+                            path + "/status",
+                            "PATCH",
+                            { status: "Resolved", resolutionNotes },
+                            activeStaffToken,
+                        )
+                    ).status,
+                    400,
+                );
+            const resolved = await request(
+                path + "/status",
+                "PATCH",
+                { status: "Resolved", resolutionNotes: "Replaced seal" },
+                activeStaffToken,
+            );
+            assert.equal(resolved.status, 200, JSON.stringify(resolved));
+            assert.ok(resolved.body.data.resolvedAt);
+            for (const token of [adminToken, activeStaffToken]) {
+                assert.equal(
+                    (
+                        await request(
+                            path,
+                            "PATCH",
+                            { description: "Rewrite" },
+                            token,
+                        )
+                    ).status,
+                    409,
+                );
+                assert.equal(
+                    (
+                        await request(
+                            path + "/assign",
+                            "PATCH",
+                            { assignedStaffId: staffUser.userId },
+                            token,
+                        )
+                    ).status,
+                    409,
+                );
+                assert.equal(
+                    (
+                        await request(
+                            path + "/status",
+                            "PATCH",
+                            { status: "Open" },
+                            token,
+                        )
+                    ).status,
+                    409,
+                );
+            }
+            const history = await request(
+                path + "/history",
+                "GET",
+                undefined,
+                memberToken,
+            );
+            assert.equal(history.status, 200);
+            assert.equal(history.body.data.length, 6);
+            assert.equal(history.body.data[0].actionType, "INSERT");
+            assert.equal(history.body.data[0].changedBy, member.userId);
+            assert.equal(history.body.data[0].oldValue, null);
+            assert.equal(history.body.data.at(-1).newValue.status, "Resolved");
+            assert.equal(
+                history.body.data.at(-1).oldValue.status,
+                "In Progress",
+            );
+            assert.equal(history.body.data.at(-1).changedBy, staffUser.userId);
+            assert.equal(
+                JSON.stringify(history.body).includes("passwordHash"),
+                false,
+            );
+            // The existing trigger audits direct SQL too, and audit writes roll back atomically.
+            const before = await db.auditLog.count({
+                where: { tableName: "MaintenanceRequest" },
+            });
+            await assert.rejects(
+                db.$transaction(async (tx) => {
+                    await tx.maintenanceRequest.create({
+                        data: {
+                            facilityId: facility.facilityId,
+                            reportedBy: member.userId,
+                            description: "Rollback",
+                        },
+                    });
+                    throw new Error("intentional rollback");
+                }),
+            );
+            assert.equal(
+                await db.auditLog.count({
+                    where: { tableName: "MaintenanceRequest" },
+                }),
+                before,
+            );
+            const direct = await db.maintenanceRequest.create({
+                data: {
+                    equipmentId: equipment.equipmentId,
+                    description: "Direct database event",
+                },
+            });
+            const directLog = await db.auditLog.findFirst({
+                where: {
+                    tableName: "MaintenanceRequest",
+                    recordId: direct.requestId,
+                },
+            });
+            assert.equal(directLog.actionType, "INSERT");
+            assert.equal(directLog.changedBy, null);
+        },
+    );
     const at = (hours) => new Date(Date.now() + hours * 3600000).toISOString();
     const payload = {
         facilityId: facility.facilityId,

@@ -42,6 +42,11 @@ function createApp({ database = prisma, authOptions } = {}) {
     );
     app.use("/api/loans", auth.authenticate, require("./routes/loan.routes"));
     app.use(
+        "/api/maintenance-requests",
+        auth.authenticate,
+        require("./routes/maintenance.routes"),
+    );
+    app.use(
         "/api/test",
         auth.authenticate,
         auth.allowRoles(ROLES.ADMIN),

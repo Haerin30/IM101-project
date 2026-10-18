@@ -1,5 +1,11 @@
 # Backend hardening deployment and recovery
 
+> Historical deployment instructions for the superseded backend-hardening design.
+> Do not execute this migration sequence against Supabase V2. The old database
+> and its backup remain separate. See the
+> [V2-only baseline setup](approved-schema-migration.md) and
+> [historical migration archive](migration-archive/README.md).
+
 No shared Supabase inspection or migration was performed while implementing this change.
 The local integration suite uses a separate loopback PostgreSQL database and random schemas.
 Production data quality and applied migration history remain unverified until an approved operator inspects them.

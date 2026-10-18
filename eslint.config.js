@@ -3,15 +3,7 @@ const globals = require("globals");
 
 module.exports = [
     {
-        ignores: [
-            "node_modules/**",
-            "tmp/**",
-            "generated/**",
-            "coverage/**",
-            ".agents/**",
-            ".claude/**",
-            ".windsurf/**",
-        ],
+        ignores: ["node_modules/**", "tmp/**", "generated/**", "coverage/**"],
     },
     {
         files: ["**/*.js"],

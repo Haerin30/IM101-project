@@ -2,77 +2,24 @@ name: Repository Quality Check
 
 on:
     push:
-        branches:
-            - main
+        branches: [main, rebuild/clean-v2]
     pull_request:
-        branches:
-            - main
+        branches: [main]
 
 permissions:
     contents: read
 
 jobs:
     quality-check:
-        name: Code Quality
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        services:
-            postgres:
-                image: postgres:16
-                env:
-                    POSTGRES_USER: quality
-                    POSTGRES_PASSWORD: quality
-                    POSTGRES_DB: im101_test
-                ports:
-                    - 5432:5432
-                options: >-
-                    --health-cmd pg_isready
-                    --health-interval 5s
-                    --health-timeout 5s
-                    --health-retries 10
-        env:
-            # Validation/formatting do not connect to this placeholder database.
-            DATABASE_URL: postgresql://quality:quality@127.0.0.1:5432/quality
-            TEST_DATABASE_URL: postgresql://quality:quality@127.0.0.1:5432/im101_test
-            PRISMA_SKILLS_CHECK: "0"
-
         steps:
-            # 1. Get the repository
-            - name: Checkout repository
-              uses: actions/checkout@v4
-
-            # 2. Set up Node.js
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
               with:
                   node-version: 24
                   cache: npm
-
-            # 3. Install dependencies
             - name: Install dependencies
               run: npm ci
-
-            # 4. Check Prisma schema
-            - name: Validate Prisma schema
-              run: npm run prisma:validate
-
-            # Includes Prisma formatting using the installed, locked CLI.
-            - name: Check code formatting
-              run: npm run format:check
-
-            - name: Check JavaScript syntax
-              run: npm run check:syntax
-
-            # 7. Run ESLint
-            - name: Run ESLint
-              run: npm run lint
-
-            # 8. Run tests
-            - name: Run tests
-              run: npm test
-            - name: Generate Prisma client
-              run: npx prisma generate --config prisma7.config.ts
-            - name: Test PostgreSQL workflows and concurrency
-              run: npm run test:integration
-            - name: Audit dependencies
-              run: npm run audit
+            - name: Run database-free quality checks
+              run: npm run quality

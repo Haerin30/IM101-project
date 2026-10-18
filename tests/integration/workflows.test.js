@@ -502,6 +502,21 @@ test("PostgreSQL integrity and API workflows", async (t) => {
             assert.equal(directLog.changedBy, null);
         },
     );
+    await require("./hardening")(t, {
+        db,
+        request,
+        adminToken,
+        memberToken,
+        adminUser,
+        member,
+        facility,
+        inactive,
+        equipment,
+        roles,
+        admin,
+        url,
+        schema,
+    });
     const at = (hours) => new Date(Date.now() + hours * 3600000).toISOString();
     const payload = {
         facilityId: facility.facilityId,

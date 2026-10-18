@@ -72,3 +72,40 @@ test("database details stay private", async () => {
     assert.equal(res.statusCode, 500);
     assert.doesNotMatch(JSON.stringify(res.body), /secret/);
 });
+
+test("equipment deactivation uses lifecycle without overwriting physical condition", async () => {
+    const result = await invoke(controller.deleteEquipment);
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(db.equipment.update.mock.calls.at(-1).arguments[0].data, {
+        isActive: false,
+    });
+    for (const conditionStatus of ["Inactive", null])
+        assert.equal(
+            (await invoke(controller.updateEquipment, { conditionStatus }))
+                .statusCode,
+            400,
+        );
+    for (const isActive of ["false", 0, null])
+        assert.equal(
+            (await invoke(controller.updateEquipment, { isActive })).statusCode,
+            400,
+        );
+    assert.equal(
+        (
+            await invoke(controller.createEquipment, {
+                ...valid,
+                isActive: false,
+            })
+        ).statusCode,
+        400,
+    );
+    assert.equal(
+        (
+            await invoke(controller.updateEquipment, {
+                isActive: true,
+                conditionStatus: "Fair",
+            })
+        ).statusCode,
+        200,
+    );
+});

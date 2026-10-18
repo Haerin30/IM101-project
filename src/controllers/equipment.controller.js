@@ -22,10 +22,17 @@ function fields(b, creating) {
         data.equipmentName = v.text(b.equipmentName, "equipmentName", 200);
     if (b.conditionStatus !== undefined) {
         v.check(
-            ["Good", "Fair", "Damaged", "Inactive"].includes(b.conditionStatus),
+            ["Good", "Fair", "Damaged"].includes(b.conditionStatus),
             "Invalid conditionStatus.",
         );
         data.conditionStatus = b.conditionStatus;
+    }
+    if (b.isActive !== undefined) {
+        v.check(
+            !creating && typeof b.isActive === "boolean",
+            "isActive must be a boolean and can only be updated on existing equipment.",
+        );
+        data.isActive = b.isActive;
     }
     // Stock is derived by PostgreSQL from allocations and open loans.
     if (b.availableQuantity !== undefined) {
@@ -80,7 +87,7 @@ const deleteEquipment = v.endpoint(async (req, res) => {
     const data = await v.transaction(prisma, req, (tx) =>
         tx.equipment.update({
             where: { equipmentId: id },
-            data: { conditionStatus: "Inactive" },
+            data: { isActive: false },
             include,
         }),
     );

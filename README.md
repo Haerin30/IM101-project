@@ -170,7 +170,9 @@ does not make someone a technician.
 The only transitions are Open to In Progress, then In Progress to Resolved.
 Resolving records the server timestamp and nonblank resolution notes. Resolved
 requests cannot be edited, reassigned, or reopened by any role. Assignment does
-not advance status. Assignment is optional before starting work. There is no
+not advance status. An eligible active maintenance staff assignee is required before
+starting or resolving work. If the assignee becomes inactive or loses the staff
+role, reassign before progressing. There is no
 maintenance deletion endpoint. Facility/equipment references and reporting
 identity cannot be changed after creation. Existing inactive assets can still
 be reported for maintenance; creating requests never changes asset availability.
@@ -192,10 +194,39 @@ through the normal reviewed deployment process. API writes use the existing
 serializable transaction helper, which supplies app.user_id for audit attribution.
 Concurrent conflicting edits return 409 and can be retried after reloading.
 Direct database writes are also audited; without actor context changedBy is null.
-Workflow permissions are enforced by the API; direct database access must remain
+The new maintenance integrity migration also enforces field, workflow, assignment
+and history invariants in PostgreSQL. Role/ownership permissions are enforced by
+the API; direct database access must remain
 restricted to trusted operators.
+
+Legacy In Progress and Resolved reports may retain missing staff assignments.
+Resolved history stays immutable; staff/admin can assign eligible active staff to
+legacy work in progress. Every new status transition requires that assignment in
+both the API and PostgreSQL. There is no row-wide assignment CHECK that would
+reject valid legacy updates. Historical facility/equipment locations are preserved
+even after relocation; matching the current location is required only on creation
+(portable equipment with no home facility is accepted). The read-only preflight
+reports historical missing/ineligible assignees and location differences as review
+warnings, while invalid fields and resolution metadata still block deployment.
 
 Maintenance unit tests cover validation, ownership, field restrictions, assignment,
 transitions, resolution, and history serialization. The PostgreSQL integration
 suite additionally exercises every authenticated endpoint, actual audit snapshots,
 actor IDs, atomic rollback, concurrent transitions, and unchanged asset stock.
+
+## Final backend hardening
+
+Equipment now has isActive independently of conditionStatus. DELETE deactivates
+without overwriting physical condition; PUT may reactivate with a verified physical
+condition. Legacy Inactive conditions become inactive records with null (unknown)
+physical condition, never an invented condition. Inactive equipment cannot be
+borrowed or allocated to new reservations. Existing inventory protections remain.
+
+Maintenance creation checks that equipment's known home matches the supplied
+facility; portable equipment with no home is allowed. Database constraints and
+triggers also protect direct writes, resolution metadata and immutable history.
+
+Read [the deployment and recovery guide](docs/backend-hardening-deployment.md)
+before applying any migrations. It includes migration order, read-only preflight,
+legacy data cleanup, backup, deployment and recovery steps. Shared Supabase work
+requires explicit approval.

@@ -199,6 +199,16 @@ and history invariants in PostgreSQL. Role/ownership permissions are enforced by
 the API; direct database access must remain
 restricted to trusted operators.
 
+Legacy In Progress and Resolved reports may retain missing staff assignments.
+Resolved history stays immutable; staff/admin can assign eligible active staff to
+legacy work in progress. Every new status transition requires that assignment in
+both the API and PostgreSQL. There is no row-wide assignment CHECK that would
+reject valid legacy updates. Historical facility/equipment locations are preserved
+even after relocation; matching the current location is required only on creation
+(portable equipment with no home facility is accepted). The read-only preflight
+reports historical missing/ineligible assignees and location differences as review
+warnings, while invalid fields and resolution metadata still block deployment.
+
 Maintenance unit tests cover validation, ownership, field restrictions, assignment,
 transitions, resolution, and history serialization. The PostgreSQL integration
 suite additionally exercises every authenticated endpoint, actual audit snapshots,

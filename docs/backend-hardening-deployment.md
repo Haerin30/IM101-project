@@ -10,7 +10,10 @@ Maintenance progression now requires an assigned, active Facility/Maintenance St
 The API checks this before both transitions, and a PostgreSQL trigger rechecks under a
 shared user-row lock. Deactivation or role changes serialize with those checks. A user may
 still be deactivated after a transition commits; the next transition is blocked until an
-eligible staff member is assigned. Staff/admin can reassign Open and In Progress requests.
+eligible staff member is assigned. Staff/admin can reassign Open and In Progress requests,
+including historical In Progress requests that have no assignee. No row-wide assignment
+constraint rejects old In Progress or Resolved records. The trigger requires an assignee
+on every new transition, then checks eligibility under the same user-row lock.
 Resolution needs nonblank notes and a timestamp. Resolved rows cannot be updated or deleted.
 Reporting identity, asset references, and reported time are immutable. All maintenance
 requests are retained; the API still enforces role and reporter ownership restrictions.
@@ -38,6 +41,16 @@ No loans, reservations, repairs or audit records are deleted, and no new entitie
 
 ## Required migration order
 
+The compatibility fix updates the pending maintenance integrity migration. The
+configured database is remote and was not accessed. The isolated local test cluster
+has no application migration history; application environments remain unverified.
+Before deploying, check `_prisma_migrations` in an approved environment. If the
+original maintenance integrity migration has already finished there, do not deploy
+this edited file over it or alter its recorded checksum: prepare a reviewed forward
+migration that drops `maintenance_assigned` and replaces `maintenance_guard()` with
+the transition checks in this version. A forward migration alone cannot fix the
+original preflight failure on databases where the original migration is still pending.
+
 Never edit an applied migration. The repository order is:
 
 1. 20260927063702_init
@@ -49,7 +62,10 @@ Never edit an applied migration. The repository order is:
    audited legacy conversion, replacement equipment_guard/change_stock functions)
 
 Both new migrations use explicit transactions and acquire table locks before preflight.
-They fail and roll back on incompatible legacy data instead of silently correcting it.
+They fail and roll back on invalid fields or resolution metadata instead of silently
+correcting it. Missing historical assignments, currently ineligible historical staff,
+and differences from equipment's current location are warnings, not blockers.
+No maintenance rows or existing audit records are changed by the maintenance migration.
 The original integrity migration also fails on invalid dates, overlaps, quantities, or
 unreconciled stock; the original audit migration depends on its audit_change function.
 The new migrations do not replace these prerequisites or assume Supabase has them.
@@ -73,14 +89,18 @@ Do not run these steps against shared Supabase until the owner explicitly approv
    reviewed and run node scripts/preflight.js. The script never loads .env or falls back
    to DATABASE_URL; it runs a repeatable-read, read-only transaction and prints IDs/check
    names, legacy inactive equipment IDs, and migration metadata, never passwords/hashes.
+   The report separates issues (blocking errors) from warnings (historical differences).
+   Only issues cause nonzero exit; warnings must be reviewed without automatic repair.
    Nonzero exit or missing tables requires review. It reports data issues but does not
    prove full schema parity or replace migration status/backup verification.
 6. Review every incompatible row. Reconcile outstanding stock from actual loans,
    reservations and damage; never invent availability. Resolve maintenance fields,
-   priorities, missing assignments, incomplete resolution metadata, and asset mismatches
-   against evidence. Resolved assignees may now be inactive: historical resolution is
-   preserved. Unresolved assigned users must be active staff at migration time.
-   A historical location mismatch may reflect later relocation; do not blindly rewrite it.
+   priorities and incomplete resolution metadata against evidence. Missing historical
+   assignments, currently inactive/ineligible assignees, and differences between a report
+   location and equipment's present location are review warnings, not migration blockers.
+   Preserve these historical values. Do not invent assignments or rewrite old facility IDs.
+   Historical In Progress requests may receive eligible staff assignment; only new status
+   transitions require an eligible active assignee. Resolved requests stay immutable.
    If resolved records cannot satisfy constraints without falsifying history, stop deployment
    and agree an explicit data reconciliation strategy. Record approved corrections in
    existing audit infrastructure, with actor context, before retrying. Do not fabricate notes,

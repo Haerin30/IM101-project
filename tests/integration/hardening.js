@@ -20,6 +20,7 @@ module.exports = async function hardening(
         schema,
     },
 ) {
+    await require("./historical-maintenance")(t, { admin, url, schema });
     const root = "/api/maintenance-requests";
     const make = async (body) =>
         request(
@@ -460,12 +461,39 @@ module.exports = async function hardening(
                 await pool.query(`INSERT INTO "EquipmentCategory" ("categoryName") VALUES ('Legacy');
                 INSERT INTO "Equipment" ("categoryId","equipmentName","totalQuantity","availableQuantity","conditionStatus") VALUES (1,'Legacy inactive',2,2,'Inactive');
                 INSERT INTO "MaintenanceRequest" (description) VALUES (' ');`);
+                const { preflight } = require("../../scripts/preflight");
+                assert.ok(
+                    (await preflight(pool)).issues.some(
+                        (row) => row.check === "maintenance_fields",
+                    ),
+                );
+                const invalidBefore = (
+                    await pool.query('SELECT * FROM "MaintenanceRequest"')
+                ).rows;
+                const auditBefore = (
+                    await pool.query(
+                        'SELECT * FROM "AuditLog" ORDER BY "logId"',
+                    )
+                ).rows;
                 await assert.rejects(
                     pool.query(
                         migration("20261018030000_maintenance_integrity"),
                     ),
                 );
                 await pool.query("ROLLBACK");
+                assert.deepEqual(
+                    (await pool.query('SELECT * FROM "MaintenanceRequest"'))
+                        .rows,
+                    invalidBefore,
+                );
+                assert.deepEqual(
+                    (
+                        await pool.query(
+                            'SELECT * FROM "AuditLog" ORDER BY "logId"',
+                        )
+                    ).rows,
+                    auditBefore,
+                );
                 assert.equal(
                     (
                         await pool.query(

@@ -341,3 +341,69 @@ test("maintenance facility and equipment must match unless equipment is portable
     }
     homeFacilityId = null;
 });
+
+test("historical unassigned requests retain API ownership and immutability", async () => {
+    row = {
+        requestId: 1,
+        reportedBy: 1,
+        status: "Resolved",
+        assignedStaffId: null,
+    };
+    assert.equal((await call("getRequest")).statusCode, 200);
+    assert.equal((await call("getHistory")).statusCode, 200);
+    assert.equal(
+        (await call("getRequest", {}, ROLES.MEMBER, 2)).statusCode,
+        403,
+    );
+    assert.equal(
+        (await call("editRequest", { description: "Rewrite" }, ROLES.ADMIN))
+            .statusCode,
+        409,
+    );
+    assert.equal(
+        (await call("assignRequest", { assignedStaffId: 2 }, ROLES.ADMIN))
+            .statusCode,
+        409,
+    );
+    assert.equal(
+        (await call("updateStatus", { status: "Open" }, ROLES.ADMIN))
+            .statusCode,
+        409,
+    );
+    row = {
+        requestId: 1,
+        reportedBy: 1,
+        status: "In Progress",
+        assignedStaffId: null,
+    };
+    assert.equal(
+        (await call("assignRequest", { assignedStaffId: 2 })).statusCode,
+        403,
+    );
+    assert.equal(
+        (
+            await call(
+                "updateStatus",
+                { status: "Resolved", resolutionNotes: "Fixed" },
+                ROLES.ADMIN,
+            )
+        ).statusCode,
+        409,
+    );
+    assigned = { isActive: true, role: { roleName: ROLES.STAFF } };
+    assert.equal(
+        (await call("assignRequest", { assignedStaffId: 2 }, ROLES.ADMIN))
+            .statusCode,
+        200,
+    );
+    assert.equal(
+        (
+            await call(
+                "updateStatus",
+                { status: "Resolved", resolutionNotes: "Fixed" },
+                ROLES.ADMIN,
+            )
+        ).statusCode,
+        200,
+    );
+});

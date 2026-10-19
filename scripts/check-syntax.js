@@ -6,6 +6,7 @@ const files = [
     "src/db.js",
     "src/auth.js",
     "tests/auth.test.js",
+    "tests/rbac.test.js",
     "scripts/db-check.js",
     "scripts/check-syntax.js",
     "eslint.config.js",

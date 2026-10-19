@@ -1,12 +1,12 @@
 require("dotenv").config({ quiet: true });
 
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-
 let prisma;
 
 function getPrisma() {
     if (!prisma) {
+        // Mocked routes and health checks do not need a generated client.
+        const { PrismaClient } = require("@prisma/client");
+        const { PrismaPg } = require("@prisma/adapter-pg");
         const connectionString = process.env.DATABASE_URL;
         if (!connectionString || !connectionString.trim()) {
             throw new Error("DATABASE_URL is required.");

@@ -72,6 +72,12 @@ Keep `JWT_SECRET` private and use HTTPS in deployment. Tokens are bearer credent
 
 The previous implementation, historical migrations, and verification tools remain recoverable from branch `backup/pre-clean-rebuild-20261019`, commit `da28eec`. Keep local environment files and database backups private and separate from Git.
 
+## Role checks
+
+`createAuth({ getPrisma, jwtSecret })` also returns `requireRoles(allowedRoles)`. Supply a nonempty array of exact role names when defining a route. It authenticates the bearer token and reloads the current active user and role before checking permission, so it can be mounted directly without a separate `authenticate` call. It returns 401 for failed authentication and 403 with a generic `Access denied.` message when the database role is not permitted. Database failures flow to the app's existing safe error handler.
+
+The middleware uses `roleName`, never a fixed role ID or role sent in a token, header, body, or query string. Multiple allowed names are supported, with no implicit administrator bypass. Invalid configuration throws during route setup, and the middleware copies the allowed list so later array changes do not alter permissions. Tests use isolated Express routes and mocked database reads; no production demonstration routes or business permission matrix are added. Future modules must explicitly choose their permitted roles and enforce any record-level ownership rules.
+
 ### Local database connection
 
 The backend connects to Supabase PostgreSQL through Prisma.

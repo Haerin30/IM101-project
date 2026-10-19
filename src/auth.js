@@ -75,6 +75,33 @@ function createAuth({ getPrisma, jwtSecret }) {
         }
     }
 
+    function requireRoles(allowedRoles) {
+        if (
+            !Array.isArray(allowedRoles) ||
+            allowedRoles.length === 0 ||
+            [...allowedRoles].some(
+                (role) =>
+                    typeof role !== "string" ||
+                    !role.trim() ||
+                    role !== role.trim(),
+            )
+        ) {
+            throw new Error("A nonempty list of role names is required.");
+        }
+        const permitted = new Set(allowedRoles);
+        return (req, res, next) =>
+            authenticate(req, res, (error) => {
+                if (error) return next(error);
+                if (!permitted.has(req.user.role.roleName)) {
+                    return res.status(403).json({
+                        success: false,
+                        message: "Access denied.",
+                    });
+                }
+                next();
+            });
+    }
+
     const router = Router();
     router.use((req, res, next) => {
         res.set("Cache-Control", "no-store");
@@ -131,7 +158,7 @@ function createAuth({ getPrisma, jwtSecret }) {
     router.get("/me", authenticate, (req, res) =>
         res.json({ success: true, user: req.user }),
     );
-    return { router, authenticate };
+    return { router, authenticate, requireRoles };
 }
 
 module.exports = { createAuth };

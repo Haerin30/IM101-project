@@ -6,6 +6,8 @@
     "scripts": {
         "dev": "node --watch src/server.js",
         "start": "node src/server.js",
+        "db:check": "node scripts/db-check.js",
+        "prisma:generate": "prisma generate --config prisma7.config.ts",
         "lint": "eslint . --max-warnings=0",
         "format": "prettier --write . && npm run prisma:format",
         "format:check": "prettier --check . && npm run prisma:format:check",

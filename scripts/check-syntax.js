@@ -3,6 +3,8 @@ const { spawnSync } = require("node:child_process");
 const files = [
     "src/app.js",
     "src/server.js",
+    "src/db.js",
+    "scripts/db-check.js",
     "scripts/check-syntax.js",
     "eslint.config.js",
 ];

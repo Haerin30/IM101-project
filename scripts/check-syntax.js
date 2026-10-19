@@ -4,6 +4,8 @@ const files = [
     "src/app.js",
     "src/server.js",
     "src/db.js",
+    "src/auth.js",
+    "tests/auth.test.js",
     "scripts/db-check.js",
     "scripts/check-syntax.js",
     "eslint.config.js",

@@ -97,3 +97,63 @@ npm.cmd run db:check
 ```
 
 Never commit `.env`, database passwords, or private certificate files. Keep TLS certificate verification enabled.
+
+## Initial account provisioning (operator only)
+
+This local command is not wired into the server, installation, or migrations. Automated tests use mocks or invoke the CLI without confirmation, which prevents database access. It exposes no registration API. After reviewing and approving the change, an operator can initialize the exact three approved roles and the first System Administrator. Nothing is created until the operator runs the command and types its exact confirmation phrase in an interactive terminal. Piped input and `--yes` are not supported.
+
+First run `npm ci` and `npm run prisma:generate`. Privately verify that `DATABASE_URL` targets the intended Supabase V2 database, uses `sslmode=verify-full`, and has the required read/insert permissions. Set `NODE_EXTRA_CA_CERTS` to the external certificate documented above before starting Node; do not disable TLS verification. This command deliberately refuses weaker SSL modes. No migration or database reset is needed.
+
+The modes are:
+
+- `npm.cmd run provision:initial -- roles`: type `INITIALIZE ROLES` to upsert the approved role names. Existing roles keep their IDs and values, including unrelated roles. Repeating this mode does not create duplicate roles.
+- `npm.cmd run provision:initial -- admin`: type `CREATE FIRST ADMINISTRATOR` to ensure those roles and create one active administrator. This mode also initializes roles, so running the roles mode first is optional. It rejects an existing exact email or any existing System Administrator, including an inactive one; it never promotes an existing account, resets a password, or replaces records.
+
+For the first real account, run the following yourself in a trusted, non-recorded PowerShell terminal after approval. Values come from prompts, not command arguments or checked-in files. Use a strong unique password with at least 15 characters and at most 72 UTF-8 bytes. Names are limited to 60 characters and email to 150; surrounding name/email whitespace is removed, passwords are preserved, and email matching stays case-sensitive like login.
+
+```powershell
+$env:PROVISION_ADMIN_EMAIL = Read-Host "Administrator email"
+$env:PROVISION_ADMIN_FIRST_NAME = Read-Host "First name"
+$env:PROVISION_ADMIN_LAST_NAME = Read-Host "Last name"
+$provisionPassword = Read-Host "Administrator password" -AsSecureString
+$provisionPointer = [IntPtr]::Zero
+try {
+    $provisionPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($provisionPassword)
+    $env:PROVISION_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($provisionPointer)
+    npm.cmd run provision:initial -- admin
+    # At the command's prompt, type: CREATE FIRST ADMINISTRATOR
+} finally {
+    if ($provisionPointer -ne [IntPtr]::Zero) {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($provisionPointer)
+    }
+    $provisionPassword.Dispose()
+    Remove-Item Env:PROVISION_ADMIN_PASSWORD, Env:PROVISION_ADMIN_EMAIL, Env:PROVISION_ADMIN_FIRST_NAME, Env:PROVISION_ADMIN_LAST_NAME -ErrorAction SilentlyContinue
+}
+```
+
+The password exists briefly in the operator process environment and child process memory; use a trusted local session and never echo or persist these variables. The command stores only a bcrypt hash with cost 12 and prints sanitized status messages, never supplied credentials, hashes, connection strings, or raw database errors. Exit code 0 means completion; 1 means refusal or failure. Input and confirmation are checked before the database client is opened. Malformed Unicode is rejected; names and emails also reject control characters. Exactly one `sslmode=verify-full` parameter is required, preventing conflicting duplicate TLS settings.
+
+Role upserts and administrator creation share one Serializable transaction with a 10-second acquisition limit and a 30-second transaction limit; the database adapter also bounds connection/query waits to 10 seconds. Password hashing happens before the transaction starts. Failed transactions roll back their record changes, although PostgreSQL sequences can retain gaps. Concurrent initial-administrator attempts use the same Serializable existence check and insertion; a conflicting attempt must abort rather than create a second administrator. This protects cooperating provisioning transactions, not arbitrary external writes or future administrator-management code. Serialization conflicts are reported without automatic retries; review state before rerunning. If cleanup or connection failure makes the outcome uncertain, verify the database state before retrying. Tests cover simulated concurrent commit conflicts and real Prisma queries through an isolated adapter; actual PostgreSQL write concurrency remains unverified. Existing approved roles keep their IDs and values when creating the first administrator; role initialization need not be rerun first.
+
+### Test a real login after provisioning
+
+Start the API separately with `npm start`, a private random `JWT_SECRET`, and the same database/CA configuration. Then use an unrecorded local session to sign in without printing the password or token:
+
+```powershell
+$loginCredentials = Get-Credential -Message "Enter the provisioned administrator credentials"
+try {
+    $loginBody = @{
+        email = $loginCredentials.UserName
+        password = $loginCredentials.GetNetworkCredential().Password
+    } | ConvertTo-Json
+    $loginResult = Invoke-RestMethod -Method Post -Uri "http://localhost:5000/api/auth/login" -ContentType "application/json" -Body $loginBody
+    $profileResult = Invoke-RestMethod -Uri "http://localhost:5000/api/auth/me" -Headers @{ Authorization = "Bearer $($loginResult.token)" }
+    $profileResult.user
+} finally {
+    $loginBody = $null
+    $loginResult = $null
+    $loginCredentials = $null
+}
+```
+
+Expect an HTTP 200 profile with the database role `System Administrator` and no password/hash. Keep the JWT private; use HTTPS for any non-local deployment. This task does not run these operator commands or create real accounts.

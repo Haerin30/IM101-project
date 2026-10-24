@@ -12,6 +12,8 @@ const readRoles = [
     "Faculty / Student Organization Representative",
 ];
 
+class BuildingFloorConflict extends Error {}
+
 function positiveInteger(value, max) {
     return typeof value === "string" &&
         /^[1-9]\d*$/.test(value) &&
@@ -139,18 +141,58 @@ function createBuildings({ getPrisma, requireRoles }) {
                     : buildingData(req.body, method === "create");
             if (method !== "delete" && !data) return invalid(res);
             try {
-                const building = await getPrisma().building[method]({
+                const prisma = getPrisma();
+                const query = {
                     ...(method === "create"
                         ? {}
                         : { where: { buildingId: req.buildingId } }),
                     ...(data ? { data } : {}),
                     select: buildingSelect,
-                });
+                };
+                const building =
+                    method === "update" && Object.hasOwn(data, "floorCount")
+                        ? await prisma.$transaction(
+                              async (tx) => {
+                                  // Pair this predicate read + building write with the
+                                  // Serializable building read + write in Facilities.
+                                  // Both paths must keep this isolation to prevent write skew.
+                                  const outside = await tx.facility.findFirst({
+                                      where: {
+                                          buildingId: req.buildingId,
+                                          floorNumber: { gt: data.floorCount },
+                                      },
+                                      select: { facilityId: true },
+                                  });
+                                  if (outside)
+                                      throw new BuildingFloorConflict();
+                                  return tx.building.update(query);
+                              },
+                              {
+                                  isolationLevel: "Serializable",
+                                  maxWait: 10000,
+                                  timeout: 15000,
+                              },
+                          )
+                        : await prisma.building[method](query);
                 res.status(method === "create" ? 201 : 200).json({
                     success: true,
                     building,
                 });
             } catch (error) {
+                if (error instanceof BuildingFloorConflict) {
+                    return res.status(409).json({
+                        success: false,
+                        message:
+                            "Floor count cannot be below an existing facility's floor number.",
+                    });
+                }
+                if (error?.code === "P2034") {
+                    return res.status(409).json({
+                        success: false,
+                        message:
+                            "Concurrent changes prevented this operation. Reload the building before retrying.",
+                    });
+                }
                 if (method !== "delete" && error?.code === "P2002") {
                     return res.status(409).json({
                         success: false,

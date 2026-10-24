@@ -17,6 +17,13 @@ function createApp(options = {}) {
             requireRoles,
         }),
     );
+    app.use(
+        "/api/facilities",
+        require("./facilities").createFacilities({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
     app.get("/api/health", (req, res) => {
         res.json({
             success: true,

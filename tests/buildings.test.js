@@ -24,7 +24,15 @@ const original = {
 
 test("Buildings CRUD with isolated Prisma mocks and real HTTP/JWT/RBAC", async (t) => {
     const secret = randomBytes(48).toString("hex");
-    let user, rows, calls, failure, dependencies, beforeWrite;
+    let user,
+        rows,
+        calls,
+        failure,
+        dependencies,
+        beforeWrite,
+        facilityFloors,
+        transactions,
+        failCommit;
     function reset() {
         user = {
             userId: 7,
@@ -39,6 +47,9 @@ test("Buildings CRUD with isolated Prisma mocks and real HTTP/JWT/RBAC", async (
         failure = null;
         dependencies = false;
         beforeWrite = null;
+        facilityFloors = [];
+        transactions = 0;
+        failCommit = false;
     }
     reset();
     const prisma = {
@@ -47,6 +58,21 @@ test("Buildings CRUD with isolated Prisma mocks and real HTTP/JWT/RBAC", async (
                 if (failure === "auth")
                     throw new Error("PRIVATE-database-error");
                 return user;
+            },
+        },
+        facility: {
+            findFirst: async (query) => {
+                calls.push({ method: "facility.findFirst", query });
+                assert.deepEqual(query.select, { facilityId: true });
+                if (failure === "facility lookup")
+                    throw new Error("PRIVATE-facility-error");
+                return (
+                    facilityFloors.find(
+                        (row) =>
+                            row.buildingId === query.where.buildingId &&
+                            row.floorNumber > query.where.floorNumber.gt,
+                    ) || null
+                );
             },
         },
         building: Object.fromEntries(
@@ -122,6 +148,26 @@ test("Buildings CRUD with isolated Prisma mocks and real HTTP/JWT/RBAC", async (
                 ],
             ),
         ),
+    };
+    prisma.$transaction = async (run, options) => {
+        transactions++;
+        assert.deepEqual(options, {
+            isolationLevel: "Serializable",
+            maxWait: 10000,
+            timeout: 15000,
+        });
+        const snapshot = structuredClone(rows);
+        try {
+            const result = await run(prisma);
+            if (failCommit)
+                throw Object.assign(new Error("PRIVATE-commit-conflict"), {
+                    code: "P2034",
+                });
+            return result;
+        } catch (error) {
+            rows = snapshot;
+            throw error;
+        }
     };
     const app = createApp({ jwtSecret: secret, getPrisma: () => prisma });
     const server = app.listen(0, "127.0.0.1");
@@ -628,9 +674,82 @@ test("Buildings CRUD with isolated Prisma mocks and real HTTP/JWT/RBAC", async (
             },
         );
         await scenario(
+            "building floor count cannot strand facilities; safe changes remain allowed",
+            async () => {
+                facilityFloors = [
+                    { buildingId: 1, floorNumber: 3, facilityId: 11 },
+                ];
+                const rejected = await request("PUT", "/1", {
+                    floorCount: 2,
+                    buildingName: "Rejected name",
+                });
+                assert.equal(rejected.status, 409);
+                assert.match(rejected.body.message, /existing facility/);
+                assert.deepEqual(rows, [original]);
+                assert.deepEqual(calls, [
+                    {
+                        method: "facility.findFirst",
+                        query: {
+                            where: { buildingId: 1, floorNumber: { gt: 2 } },
+                            select: { facilityId: true },
+                        },
+                    },
+                ]);
+                assert.equal(
+                    (await request("PUT", "/1", { floorCount: 3 })).status,
+                    200,
+                );
+                assert.equal(
+                    (await request("PUT", "/1", { floorCount: 4 })).status,
+                    200,
+                );
+                facilityFloors[0].floorNumber = 1;
+                assert.equal(
+                    (await request("PUT", "/1", { floorCount: 1 })).status,
+                    200,
+                );
+                assert.equal(rows[0].floorCount, 1);
+                assert.equal(transactions, 4);
+            },
+        );
+        await scenario(
+            "buildings without facilities allow reduction and unrelated edits skip the floor transaction",
+            async () => {
+                assert.equal(
+                    (await request("PUT", "/1", { floorCount: 1 })).status,
+                    200,
+                );
+                assert.equal(
+                    (await request("PUT", "/1", { locationNote: "New note" }))
+                        .status,
+                    200,
+                );
+                assert.equal(transactions, 1);
+                assert.equal(rows[0].locationNote, "New note");
+            },
+        );
+        await scenario(
+            "floor guard failures and serialization conflicts roll back without retry or raw errors",
+            async () => {
+                failure = "facility lookup";
+                assert.equal(
+                    (await request("PUT", "/1", { floorCount: 2 })).status,
+                    500,
+                );
+                assert.deepEqual(rows, [original]);
+                failure = null;
+                failCommit = true;
+                const conflict = await request("PUT", "/1", { floorCount: 2 });
+                assert.equal(conflict.status, 409);
+                assert.match(conflict.body.message, /Concurrent changes/);
+                assert.deepEqual(rows, [original]);
+                assert.equal(transactions, 2);
+            },
+        );
+        await scenario(
             "database failures are sanitized across all endpoints and authentication",
             async () => {
-                for (const code of ["UNKNOWN", "P2021", "P2034", "auth"]) {
+                for (const code of ["UNKNOWN", "P2021", "auth"]) {
                     failure = code;
                     for (const [method, path] of [
                         ["GET", ""],

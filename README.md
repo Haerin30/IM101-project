@@ -1,13 +1,13 @@
 # Campus Facility Management System
 
-An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, and Buildings CRUD.
+An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, Buildings CRUD, and Facilities CRUD.
 
 The stack is Node.js 24, Express 5, JavaScript (CommonJS), Prisma 7.10.1, and PostgreSQL.
 
 ## Folders
 
-- `src/`: the Express app, server, database connection, authentication, and Buildings routes.
-- `tests/`: database-free authentication, role, Buildings, and operator-tool tests with controlled fixtures.
+- `src/`: the Express app, server, database connection, authentication, Buildings routes, and Facilities routes.
+- `tests/`: database-free authentication, role, Buildings, Facilities, and operator-tool tests with controlled fixtures.
 - `prisma/`: the approved Prisma schema and V2 initial migration.
 - `docs/`: the [professor-approved database design](docs/professor-approved-schema.dbml).
 - `scripts/`: quality checks, read-only database/login verification, and operator-only account provisioning and password recovery.
@@ -189,6 +189,62 @@ Building names are trimmed, nonempty strings of at most 100 Unicode characters. 
 
 List responses contain `success`, `buildings` and `pagination: { page, limit, hasMore }`. Page defaults to 1; limit defaults to 20 and is capped at 100. Both must be positive decimal integers. Duplicate or unknown query parameters and offsets exceeding 2,147,483,647 are rejected with 400. Results are ordered by `buildingId` ascending. The API fetches one extra row to calculate `hasMore`; it does not issue a total-count query. A page beyond available rows returns an empty array. Offset pagination can shift between requests when buildings are added or deleted.
 
-Missing buildings return 404. PostgreSQL's existing unique building-name constraint is the final check for duplicates, including concurrent requests, and produces a safe 409 response. Matching follows the existing database constraint and is case-sensitive. Deletion uses a single Prisma delete and relies on the approved `NO ACTION` foreign key: any referencing facility blocks the delete with 409. This also protects against a concurrent facility insertion. The API never deletes facilities, uses nested deletes, or changes schema/migrations. CRUD statements are atomic database operations; no extra transaction or preliminary existence/duplicate check is needed.
+Missing buildings return 404. PostgreSQL's existing unique building-name constraint is the final check for duplicates, including concurrent requests, and produces a safe 409 response. Matching follows the existing database constraint and is case-sensitive. Deletion uses a single Prisma delete and relies on the approved `NO ACTION` foreign key: any referencing facility blocks the delete with 409. This also protects against a concurrent facility insertion. The API never deletes facilities, uses nested deletes, or changes schema/migrations. Updates that supply `floorCount` now use a Serializable transaction: if any facility in the building has a floor above the proposed count, the entire update returns 409 without changing the building or facilities. A count equal to the highest facility floor is allowed. Other Building writes remain single atomic Prisma statements; duplicate/existence prechecks are unnecessary.
 
-The request path is: Express parses JSON → existing JWT middleware verifies the token and reloads the active user → `requireRoles` checks the stored role → Buildings validates the ID/query/body → Prisma builds the database query → PostgreSQL enforces unique and foreign-key constraints → Express returns a safe JSON result. Automated tests inject mocked Prisma responses while exercising real local HTTP, JWT and RBAC code; they insert no Supabase test records. Additional mocks simulate simultaneous duplicate creates and a facility arriving during deletion, and verify expired-token rejection and that signed role claims cannot grant write access. These mocks verify API behavior, not live PostgreSQL concurrency. Facilities CRUD and live Buildings verification are separate future work. The shared 8 KB JSON body limit and existing 413/415 parser responses still apply.
+The request path is: Express parses JSON → existing JWT middleware verifies the token and reloads the active user → `requireRoles` checks the stored role → Buildings validates the ID/query/body → Prisma builds the database query → PostgreSQL enforces unique and foreign-key constraints → Express returns a safe JSON result. Automated tests inject mocked Prisma responses while exercising real local HTTP, JWT and RBAC code; they insert no Supabase test records. Additional mocks simulate simultaneous duplicate creates and a facility arriving during deletion, and verify expired-token rejection and that signed role claims cannot grant write access. These mocks verify API behavior, not live PostgreSQL concurrency. Facilities CRUD is described below; live Buildings verification remains separate future work. The shared 8 KB JSON body limit and existing 413/415 parser responses still apply.
+
+## Facilities API (Phase 7)
+
+Facilities belong to one existing Building and one existing FacilityType. A building can have many facilities. The API uses only the eight approved Facility fields: `facilityId`, `buildingId`, `facilityTypeId`, `facilityName`, `floorNumber`, `capacity`, `status`, and `createdAt`. It creates no new tables, fields, facility types, or seed records.
+
+| Endpoint                     | Permission               | Success               |
+| ---------------------------- | ------------------------ | --------------------- |
+| `GET /api/facilities`        | All three approved roles | 200: facility list    |
+| `GET /api/facilities/:id`    | All three approved roles | 200: one facility     |
+| `POST /api/facilities`       | System Administrator     | 201: created facility |
+| `PUT /api/facilities/:id`    | System Administrator     | 200: updated facility |
+| `DELETE /api/facilities/:id` | System Administrator     | 200: deleted facility |
+
+The three read roles are System Administrator, Facility/Maintenance Staff, and Faculty / Student Organization Representative. Every request uses the same bearer JWT and database-backed `requireRoles` checks as Buildings. Invalid/expired tokens and inactive/deleted users receive 401; unapproved roles or non-administrator writes receive 403. Roles supplied in tokens, headers, queries or bodies cannot grant access. Unexpected database failures return a generic 500 without credentials or raw driver details.
+
+POST requires the five fields below; the IDs are examples only and must refer to records that actually exist:
+
+```json
+{
+    "buildingId": 1,
+    "facilityTypeId": 1,
+    "facilityName": "Lecture Room 201",
+    "floorNumber": 2,
+    "capacity": 40
+}
+```
+
+`status` is optional on creation: omitting it uses the database default `Available`. `createdAt` uses the database's current-time default, and `facilityId` is generated by the database. Neither field is writable. Unknown fields and nested writes such as `building`, `equipment` or `reservations` are rejected with 400. Single-record successes contain `success` and `facility`, with only the eight approved scalar fields; `createdAt` is serialized as an ISO timestamp.
+
+Validation and explicit business choices:
+
+- IDs and capacity are JSON integers from 1 to 2,147,483,647. URL IDs and filter IDs use the same positive decimal syntax as Buildings, without signs, exponents, decimals or leading zeros.
+- Names are nonempty trimmed strings of at most 100 Unicode characters. Status is a nonempty trimmed string of at most 20 characters. Both reject malformed Unicode, NUL and control characters. The schema has no status enum or lookup, so this API accepts custom status text and defines no status-transition or reservation-availability rules.
+- Floor numbering is **one-based**: the resulting floor must be between 1 and the selected building's `floorCount`, and fit PostgreSQL SmallInt (maximum 32,767). This is an API business rule; the schema itself also permits zero/negative SmallInt values. Ground-floor-zero and basement numbering are not supported by this choice.
+- Capacity must be positive; zero-capacity facilities are not supported by this choice even though the schema stores an ordinary integer.
+- Building and facility-type references are checked on both create and update. Missing references return 400. An empty facility-type lookup therefore prevents creation; the API does not assume types exist or silently create them. Populating approved lookup data requires a separate authorized task.
+
+PUT accepts a nonempty partial object, validates supplied values, and preserves omitted fields. It loads the existing facility and checks the resulting building/type/floor together. For example, moving a room from floor 3 to a building with only one floor requires sending both the new `buildingId` and `floorNumber: 1`. Missing facilities return 404; updates never upsert. Create/update checks and writes share a Serializable Prisma transaction with bounded acquisition/execution waits, so partial updates are checked against a consistent snapshot. Serialization/write conflicts return 409 without automatic retry.
+
+The existing unique constraint is `(buildingId, facilityName, floorNumber)`: the same name on the same floor of the same building produces 409, even with a different facility type. The name can appear on another floor or in another building. Uniqueness remains database-enforced and case-sensitive. Foreign-key conflicts during writes (such as a parent removed after validation) return a sanitized 409.
+
+Listing accepts optional `buildingId` and `facilityTypeId` filters, combined with AND when both are provided. For example: `GET /api/facilities?buildingId=1&facilityTypeId=2&page=1&limit=20`. Pagination follows Buildings: page 1 and limit 20 by default, limit capped at 100, deterministic `facilityId` ascending order, and `pagination: { page, limit, hasMore }`. One extra row determines `hasMore`; no total-count query is made. Repeated/unknown query parameters, invalid filters and excessive offsets return 400. A valid filter with no matching records returns an empty list. Offset pagination may shift between requests as data changes.
+
+Deletion issues only one Prisma facility delete. Existing `NO ACTION` foreign keys block deletion if equipment, reservations, maintenance requests or staff assignments reference the facility, returning 409. This also covers records inserted concurrently; the API never cascade-deletes or unlinks dependent records. No preliminary count is used to authorize deletion.
+
+Tests use isolated Prisma mocks and real local Express/JWT/RBAC requests. They cover CRUD, filters, pagination, references (including empty lookups), merged partial updates, uniqueness, dependencies, late foreign-key conflicts, serialization rollback, and safe failures. Unexpected Prisma codes and private error metadata are tested to ensure only generic 500 messages are returned. No live Supabase records are read or changed. Live database/concurrency verification remains unperformed. Existing 8 KB body limits, login-throttling requirements, and lack of individual JWT revocation remain unchanged.
+
+### Building/facility floor consistency
+
+The two APIs cooperate to preserve `facility.floorNumber <= building.floorCount`. Facilities create/update reads the selected building's floor count and validates the resulting facility before writing. Buildings updates that supply `floorCount` read a predicate over facilities in that building (`floorNumber > proposed floorCount`) before writing; any match produces 409. Both checks and writes use Serializable transactions with a 10-second acquisition limit and 15-second execution limit. Non-floor Buildings edits do not need this extra transaction.
+
+This handles the race where a building shrinks while another request creates a high-floor facility, raises its floor, or moves it into that building. If the writes cannot be committed in a valid serial order, PostgreSQL's Serializable isolation detects the conflict and Prisma reports `P2034`. Either route returns a sanitized 409, with no automatic retry. Reload the current records before a new operator-initiated attempt. See [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-SERIALIZABLE).
+
+Mock-only regression tests cover blocked and allowed floor-count changes, rollback on guard-query and commit failures, and overlapping create/move-versus-shrink requests with either transaction chosen as the conflict loser. The overlap tests deliberately inject `P2034`; they verify route behavior and isolation configuration, not PostgreSQL's internal conflict detector.
+
+This is an application safeguard for these cooperating routes, not a new database constraint. Every future writer of building floor counts or facility building/floor values must use the same validation and Serializable protocol. Direct SQL, dashboard edits, scripts, or other writers that bypass it can still introduce inconsistent floors, and pre-existing inconsistencies are not automatically repaired. The approved foreign keys enforce references but do not compare floor numbers to parent floor counts. Universal enforcement for arbitrary database writers would require additional database-side enforcement, which is outside this schema-preserving task.

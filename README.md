@@ -1,13 +1,13 @@
 # Campus Facility Management System
 
-An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, Buildings CRUD, and Facilities CRUD.
+An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, and Buildings, Facilities, and Equipment CRUD.
 
 The stack is Node.js 24, Express 5, JavaScript (CommonJS), Prisma 7.10.1, and PostgreSQL.
 
 ## Folders
 
-- `src/`: the Express app, server, database connection, authentication, Buildings routes, and Facilities routes.
-- `tests/`: database-free authentication, role, Buildings, Facilities, and operator-tool tests with controlled fixtures.
+- `src/`: the Express app, server, database connection, authentication, and Buildings, Facilities, and Equipment routes.
+- `tests/`: database-free authentication, role, Buildings, Facilities, Equipment, and operator-tool tests with controlled fixtures.
 - `prisma/`: the approved Prisma schema and V2 initial migration.
 - `docs/`: the [professor-approved database design](docs/professor-approved-schema.dbml).
 - `scripts/`: quality checks, read-only database/login verification, and operator-only account provisioning and password recovery.
@@ -39,7 +39,7 @@ The unchanged `prisma-client-js` generator produces CommonJS-compatible JavaScri
 
 `npm run db:check` connects, runs only `SELECT 1 AS ok`, and disconnects even after a failure. It prints PASS/FAIL and exits with code 0/1. Failures intentionally omit driver details to protect credentials. It does not read application tables. The Express health endpoint remains independent of this module.
 
-Equipment, reservations, loans, maintenance, seed data, audit triggers, and stored procedures require new implementation against the approved schema. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
+Equipment borrowing/return, reservations, maintenance workflows, seed data, audit triggers, and stored procedures require new implementation against the approved schema. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
 
 ## Authentication
 
@@ -248,3 +248,54 @@ This handles the race where a building shrinks while another request creates a h
 Mock-only regression tests cover blocked and allowed floor-count changes, rollback on guard-query and commit failures, and overlapping create/move-versus-shrink requests with either transaction chosen as the conflict loser. The overlap tests deliberately inject `P2034`; they verify route behavior and isolation configuration, not PostgreSQL's internal conflict detector.
 
 This is an application safeguard for these cooperating routes, not a new database constraint. Every future writer of building floor counts or facility building/floor values must use the same validation and Serializable protocol. Direct SQL, dashboard edits, scripts, or other writers that bypass it can still introduce inconsistent floors, and pre-existing inconsistencies are not automatically repaired. The approved foreign keys enforce references but do not compare floor numbers to parent floor counts. Universal enforcement for arbitrary database writers would require additional database-side enforcement, which is outside this schema-preserving task.
+
+## Equipment API (Phase 7)
+
+Equipment uses the approved fields only: `equipmentId`, `categoryId`, `homeFacilityId`, `equipmentName`, `serialNumber`, `totalQuantity`, `availableQuantity`, `conditionStatus`, and `createdAt`. Each record requires an existing EquipmentCategory and can optionally refer to a home Facility. Neither lookup records nor facilities are created automatically; an empty category lookup prevents creation with a safe 400 response.
+
+| Endpoint                    | Permission               | Success             |
+| --------------------------- | ------------------------ | ------------------- |
+| `GET /api/equipment`        | All three approved roles | 200: list           |
+| `GET /api/equipment/:id`    | All three approved roles | 200: one record     |
+| `POST /api/equipment`       | System Administrator     | 201: created record |
+| `PUT /api/equipment/:id`    | System Administrator     | 200: updated record |
+| `DELETE /api/equipment/:id` | System Administrator     | 200: deleted record |
+
+All endpoints reuse bearer JWT verification, current active-user lookup and database-backed `requireRoles`. The read roles are System Administrator, Facility/Maintenance Staff, and Faculty / Student Organization Representative. Missing/invalid/expired tokens and inactive/deleted users receive 401; disallowed roles receive 403. Client-supplied roles in valid token claims, headers, queries or bodies cannot grant permissions.
+
+Create example (the category ID is illustrative and must actually exist):
+
+```json
+{
+    "categoryId": 1,
+    "homeFacilityId": null,
+    "equipmentName": "Folding chairs",
+    "serialNumber": null,
+    "totalQuantity": 20,
+    "availableQuantity": 20
+}
+```
+
+Creation requires `categoryId`, `equipmentName`, `totalQuantity` and `availableQuantity`. Omitted `homeFacilityId` and `serialNumber` store `null`; either can be explicitly cleared to `null` on update. Omitted `conditionStatus` uses the database default `Good`. The ID and creation timestamp are database-generated and cannot be written. Single-record responses contain `success` and `equipment` (one object); list responses contain `success`, `equipment` (an array) and `pagination`. Only the nine approved scalar fields are selected, with `createdAt` serialized as an ISO timestamp.
+
+Names are nonempty trimmed strings up to 100 Unicode characters; serial numbers are `null` or nonempty trimmed strings up to 60; condition text is nonempty and limited to 20. Text rejects malformed Unicode, NUL and control characters. The schema defines no condition enum or special serial format, so the API accepts custom condition text and does not assume a serial number implies a single-unit record. Non-null serial numbers use the database's case-sensitive unique constraint; duplicates return 409. Multiple null serials are allowed. Condition text is descriptive metadata and does not automatically change stock counts or implement maintenance/checkout eligibility.
+
+IDs are positive PostgreSQL-compatible integers up to 2,147,483,647. Quantities must be JSON integers from 0 to 2,147,483,647 and must satisfy `availableQuantity <= totalQuantity`. Unknown fields, generated IDs/timestamps, nested writes, wrong types and invalid inputs receive 400. Missing records return 404. Missing category/facility references return 400; foreign-key conflicts arising later return 409. PUT accepts nonempty partial updates and never upserts. Unexpected Prisma errors return a generic 500; raw messages, private metadata and configuration are withheld.
+
+Listing supports `categoryId`, `homeFacilityId` and exact, case-sensitive `conditionStatus` filters, combined with AND. `homeFacilityId=null` selects unassigned equipment. Example: `GET /api/equipment?categoryId=1&homeFacilityId=null&conditionStatus=Good&page=1&limit=20`. Pagination defaults to page 1 and limit 20, with limit capped at 100, `equipmentId` ascending ordering, and `pagination: { page, limit, hasMore }`. One extra row determines `hasMore`; there is no total count. URL IDs/filter IDs/page/limit use positive decimal syntax without signs, exponents, decimals or leading zeros. Repeated or unknown query parameters, malformed filters and offsets above 2,147,483,647 receive 400. A valid filter with no matches returns an empty list. Offset pages may shift as rows change.
+
+### Conservative inventory policy
+
+This API manages inventory records; it does not implement borrowing, checkout, returns, reservations or maintenance workflows. To avoid quietly treating CRUD as those workflows:
+
+- **New stock starts fully available.** Creation requires equal total and available quantities (including zero); a difference returns 400. Initial unavailable stock requires a separately designed inventory/reconciliation workflow.
+- **Stock adjustments preserve the existing unavailable amount.** On update, `unavailable = current.totalQuantity - current.availableQuantity`. If a new total is supplied without availability, the API derives `newAvailable = newTotal - unavailable`. For example, a valid legacy record with total 10 and available 7 changes to total 12 and available 9. This preserves the gap; it does not assume why those three units are unavailable.
+- If availability is supplied explicitly, it must equal that derived value. A direct availability change receives 409 because checkout/return is outside CRUD. A total below unavailable stock receives 400. Inconsistent stored counts receive 409 rather than being silently repaired.
+- **Any loan-item, reservation-item or equipment maintenance reference blocks actual quantity changes with 409**, even historical/closed references. The approved schema alone does not establish active lifecycle rules, so this API does not infer them from status text or sum those records. Metadata and quantity no-ops remain editable when counts are valid. This fail-closed policy can block legitimate stock corrections indefinitely while history is retained, even after all work is completed; it does not automatically expire. Stock adjustments on referenced records need a separately reviewed, authorized reconciliation/inventory workflow with defined lifecycle and accounting rules. Do not delete/unlink history or relabel statuses to bypass this safeguard. No force/override flag or stock-correction bypass is provided here.
+- **Deletion requires fully available, consistent stock** and then issues only one equipment delete. Existing `NO ACTION` foreign keys reject any referencing LoanItem, ReservationEquipment or MaintenanceRequest with 409, including references arriving late. The API never cascades, deletes or unlinks those records.
+
+All Equipment writes use a Serializable Prisma transaction with 10-second acquisition and 15-second execution limits. Updates read the current equipment, validate merged quantities and references, inspect dependent records when quantities actually change, and write within that transaction. Deletion reads the inventory state before the database-enforced delete. Concurrent write/serialization conflicts (`P2034`) return sanitized 409 responses without automatic retries; reload current records before a new attempt. The total is an absolute replacement value, not a delta command.
+
+These inventory rules are application-level safeguards for cooperating writers. The unchanged schema has unique and foreign-key constraints, but no nonnegative/range or cross-table stock-accounting constraints. Future loan/reservation/maintenance/inventory workflows must coordinate reference changes and atomic stock changes in the same Serializable protocol, validate available stock, and define lifecycle, reservation and condition rules before use. A writer that inserts/deletes dependent rows or edits quantities outside that protocol can bypass the policy. The API cannot detect stale sequential administrator edits without an expected-version contract, reconcile historical stock, or guarantee a failed request means no commit occurred if acknowledgement was lost. Existing inconsistent data is not repaired automatically. These limitations must be addressed before those workflows are enabled; no new schema fields, triggers, lookup tables or migration are introduced here.
+
+Equipment tests use isolated Prisma snapshots and real local HTTP/JWT/RBAC requests. They cover CRUD, optional references, filters/pagination, roles/tokens, input boundaries, serial uniqueness, inventory rules, dependency conflicts, safe errors and transaction rollback. Review regressions include exact unavailable-stock reductions, rollback of combined stock/serial edits, completed-history blocking at zero stock, late home-facility removal, and unexpected commit failures. The commit-failure mock tests a rollback outcome only; a lost acknowledgement after a real commit remains an uncertain outcome requiring verification before retrying. Overlapping quantity updates test either simulated commit winner using an injected serialization conflict; they do not reproduce PostgreSQL's conflict detector or verify live concurrency. No live Supabase records are accessed. Existing authentication throttling/revocation limits and the shared 8 KB body limit remain unchanged.

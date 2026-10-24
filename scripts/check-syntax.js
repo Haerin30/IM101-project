@@ -7,6 +7,8 @@ const files = [
     "src/auth.js",
     "src/buildings.js",
     "src/facilities.js",
+    "src/equipment.js",
+    "tests/equipment.test.js",
     "tests/facilities.test.js",
     "tests/facility-floor-count.test.js",
     "tests/buildings.test.js",

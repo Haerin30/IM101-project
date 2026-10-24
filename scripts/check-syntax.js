@@ -5,6 +5,8 @@ const files = [
     "src/server.js",
     "src/db.js",
     "src/auth.js",
+    "src/buildings.js",
+    "tests/buildings.test.js",
     "tests/auth.test.js",
     "tests/rbac.test.js",
     "tests/provision-initial.test.js",

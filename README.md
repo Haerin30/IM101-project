@@ -1,13 +1,13 @@
 # Campus Facility Management System
 
-An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. This branch adds minimal login and protected profile access to the clean V2 foundation.
+An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, and Buildings CRUD.
 
 The stack is Node.js 24, Express 5, JavaScript (CommonJS), Prisma 7.10.1, and PostgreSQL.
 
 ## Folders
 
-- `src/`: the Express app, server, database connection, and authentication.
-- `tests/`: database-free HTTP authentication tests with controlled fixtures.
+- `src/`: the Express app, server, database connection, authentication, and Buildings routes.
+- `tests/`: database-free authentication, role, Buildings, and operator-tool tests with controlled fixtures.
 - `prisma/`: the approved Prisma schema and V2 initial migration.
 - `docs/`: the [professor-approved database design](docs/professor-approved-schema.dbml).
 - `scripts/`: quality checks, read-only database/login verification, and operator-only account provisioning and password recovery.
@@ -27,7 +27,7 @@ npm run dev
 
 Set a private `JWT_SECRET` containing at least 32 bytes of cryptographically random secret material in `.env` or the process environment before starting. No default secret is provided; invalid configuration prevents startup. Open http://localhost:5000/api/health. Use `npm start` to run without automatic restarts. The health endpoint does not access PostgreSQL and does not check database readiness.
 
-Run `npm run quality` for schema validation, formatting, JavaScript syntax, lint checks, and authentication tests. `npm test` runs only the database-free tests. `npm run audit` checks dependency advisories.
+Run `npm run quality` for schema validation, formatting, JavaScript syntax, lint checks, and the full automated test suite. `npm test` runs only the database-free tests. `npm run audit` checks dependency advisories.
 
 ## Database connection
 
@@ -149,7 +149,7 @@ The script uses the trusted CA at `$HOME\Documents\IM101-Backups\supabase-v2-ca.
 
 Exit code 0 means PASS; 1 means refusal or failure. Report only PASS or the sanitized failure stage. A configuration failure requires checking private V2 settings, not disabling TLS. Close the temporary terminal afterward: clearing variables does not guarantee erasure of immutable strings. HTTP is used only on loopback; use HTTPS for non-local deployment.
 
-There is no production role-protected business endpoint yet. `/api/auth/me` verifies authentication and reloads the database role, but live RBAC allow/deny verification must wait for a business module. Existing database-free RBAC tests cover all approved roles, denials, spoofed claims, and role changes. Public deployment still requires login throttling; this foundation has no individual token logout/revocation.
+`/api/auth/me` verifies authentication and reloads the database role. Buildings endpoints now apply the read/write permissions below using the same middleware. Database-free tests cover all approved roles, denials, spoofed claims, and role changes; Buildings permissions have not been tested against live Supabase records. Public deployment still requires login throttling; this foundation has no individual token logout/revocation.
 
 ### Existing administrator password recovery
 
@@ -158,3 +158,37 @@ For a forgotten password, follow the [local administrator recovery procedure](do
 ### Phase 6 dependency security review
 
 The lockfile updates `body-parser` from 2.3.0 to 2.4.0 (compressed-body denial of service) and development-only `fast-uri` from 3.1.8 to 3.1.9 (URI parsing/normalization advisories). The parser's required `qs` dependency also moves from 6.16.0 to 6.16.1. These updates fit the existing dependency ranges; Express and Prisma versions and direct dependency declarations are unchanged. See the upstream [body-parser advisory](https://github.com/advisories/GHSA-27r3-jxmh-p828) and [fast-uri advisory](https://github.com/advisories/GHSA-wjr9-j795-jxcr). Use `npm ci` to install the reviewed lockfile and `npm run audit` to check current advisories.
+
+## Buildings API (Phase 7)
+
+Every Buildings request requires `Authorization: Bearer <token>`. JWT verification reloads the current active user and their actual database role before checking permissions. Request bodies, headers and token role claims cannot grant permissions.
+
+| Endpoint                             | Permission               | Success                  |
+| ------------------------------------ | ------------------------ | ------------------------ |
+| `GET /api/buildings?page=1&limit=20` | All three approved roles | 200: paginated buildings |
+| `GET /api/buildings/:id`             | All three approved roles | 200: one building        |
+| `POST /api/buildings`                | System Administrator     | 201: created building    |
+| `PUT /api/buildings/:id`             | System Administrator     | 200: updated building    |
+| `DELETE /api/buildings/:id`          | System Administrator     | 200: deleted building    |
+
+The read roles are `System Administrator`, `Facility/Maintenance Staff`, and `Faculty / Student Organization Representative`. Other roles receive 403. Missing/invalid tokens and inactive/deleted users receive 401. Unexpected database errors return a generic 500 without driver details.
+
+Creation requires `buildingName` and `floorCount`; `locationNote` is optional. For example:
+
+```json
+{
+    "buildingName": "Science Building",
+    "floorCount": 3,
+    "locationNote": "Near the main gate"
+}
+```
+
+Building names are trimmed, nonempty strings of at most 100 Unicode characters. Floor count must be a JSON integer from 1 to 32,767 (positive values within the approved PostgreSQL SmallInt range). Location notes are trimmed strings of at most 150 Unicode characters or `null`; empty notes are allowed, and omission on creation stores `null`. Text rejects malformed Unicode, NUL and other control characters. IDs must be positive decimal integers up to 2,147,483,647; signs, decimals, exponents and leading zeros are rejected. Invalid inputs receive 400. Unknown writable fields, including IDs, roles and nested facilities, are rejected.
+
+`PUT` accepts a nonempty set of supplied fields, validates each one, and preserves omitted fields. For example, `{ "floorCount": 4 }` changes only the floor count, and `{ "locationNote": null }` clears the note. It never creates a missing building. Create, get, update and delete successes return `{ "success": true, "building": { "buildingId", "buildingName", "floorCount", "locationNote" } }` (field names shown here as an outline). These are the only selected Building fields.
+
+List responses contain `success`, `buildings` and `pagination: { page, limit, hasMore }`. Page defaults to 1; limit defaults to 20 and is capped at 100. Both must be positive decimal integers. Duplicate or unknown query parameters and offsets exceeding 2,147,483,647 are rejected with 400. Results are ordered by `buildingId` ascending. The API fetches one extra row to calculate `hasMore`; it does not issue a total-count query. A page beyond available rows returns an empty array. Offset pagination can shift between requests when buildings are added or deleted.
+
+Missing buildings return 404. PostgreSQL's existing unique building-name constraint is the final check for duplicates, including concurrent requests, and produces a safe 409 response. Matching follows the existing database constraint and is case-sensitive. Deletion uses a single Prisma delete and relies on the approved `NO ACTION` foreign key: any referencing facility blocks the delete with 409. This also protects against a concurrent facility insertion. The API never deletes facilities, uses nested deletes, or changes schema/migrations. CRUD statements are atomic database operations; no extra transaction or preliminary existence/duplicate check is needed.
+
+The request path is: Express parses JSON → existing JWT middleware verifies the token and reloads the active user → `requireRoles` checks the stored role → Buildings validates the ID/query/body → Prisma builds the database query → PostgreSQL enforces unique and foreign-key constraints → Express returns a safe JSON result. Automated tests inject mocked Prisma responses while exercising real local HTTP, JWT and RBAC code; they insert no Supabase test records. Additional mocks simulate simultaneous duplicate creates and a facility arriving during deletion, and verify expired-token rejection and that signed role claims cannot grant write access. These mocks verify API behavior, not live PostgreSQL concurrency. Facilities CRUD and live Buildings verification are separate future work. The shared 8 KB JSON body limit and existing 413/415 parser responses still apply.

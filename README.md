@@ -10,7 +10,7 @@ The stack is Node.js 24, Express 5, JavaScript (CommonJS), Prisma 7.10.1, and Po
 - `tests/`: database-free HTTP authentication tests with controlled fixtures.
 - `prisma/`: the approved Prisma schema and V2 initial migration.
 - `docs/`: the [professor-approved database design](docs/professor-approved-schema.dbml).
-- `scripts/`: the JavaScript syntax checker and read-only database check.
+- `scripts/`: quality checks, read-only database/login verification, and operator-only account provisioning and password recovery.
 - `.github/workflows/`: database-free quality checks for GitHub Actions.
 
 The approved design has 16 application entities, 97 physical fields, and 24 foreign keys. The Prisma schema and V2 migration are preserved unchanged. These setup commands do not apply migrations.
@@ -66,7 +66,7 @@ Bodies larger than 8 KB receive 413; unsupported JSON charsets or content encodi
 
 Send `Authorization: Bearer <token>` to `GET /api/auth/me`. It returns `{ "success": true, "user": { ... } }` with the same safe profile fields. Tokens use HS256, a fixed issuer/audience, a user ID subject, and a 15-minute lifetime. The reusable `authenticate` middleware returned by `createAuth` validates tokens and reloads the current active user and role. Authentication responses use `Cache-Control: no-store`.
 
-The read-only V2 inspection found no users. Historical code used bcrypt; `bcryptjs` supports its `$2a$` and `$2b$` hashes in the existing 255-character password column without schema changes. Plaintext and other formats are rejected. No accounts, registration, or role assignment are created here. Automated tests use mocked Prisma reads and real bcrypt/JWT operations; real-user login remains unverified until a separately authorized account-provisioning task.
+The operator confirmed a successful real System Administrator login against Supabase V2: login HTTP 200, JWT verified, profile HTTP 200, the correct database role, and no password/hash fields in responses. This is operator-reported verification; it was not repeated during the final review. Historical code used bcrypt; `bcryptjs` supports its `$2a$` and `$2b$` hashes in the existing 255-character password column without schema changes. Plaintext and other formats are rejected. Authentication creates no accounts or role assignments. Automated tests use mocked Prisma reads and real bcrypt/JWT operations.
 
 Keep `JWT_SECRET` private and use HTTPS in deployment. Tokens are bearer credentials and have no individual logout/revocation mechanism in this foundation; rotating the secret invalidates all tokens. Login throttling is still required before public deployment. The dummy password comparison reduces trivial user-existence timing differences but does not guarantee identical timings across stored bcrypt costs. See the upstream [bcrypt documentation](https://github.com/dcodeIO/bcrypt.js) and [JWT documentation](https://github.com/auth0/node-jsonwebtoken).
 
@@ -137,23 +137,24 @@ Role upserts and administrator creation share one Serializable transaction with 
 
 ### Test a real login after provisioning
 
-Start the API separately with `npm start`, a private random `JWT_SECRET`, and the same database/CA configuration. Then use an unrecorded local session to sign in without printing the password or token:
+From the repository root, run this yourself in a fresh, trusted, non-recorded **PowerShell 7.6.7** terminal (`pwsh` on PATH) with Node.js 24 and dependencies installed:
 
 ```powershell
-$loginCredentials = Get-Credential -Message "Enter the provisioned administrator credentials"
-try {
-    $loginBody = @{
-        email = $loginCredentials.UserName
-        password = $loginCredentials.GetNetworkCredential().Password
-    } | ConvertTo-Json
-    $loginResult = Invoke-RestMethod -Method Post -Uri "http://localhost:5000/api/auth/login" -ContentType "application/json" -Body $loginBody
-    $profileResult = Invoke-RestMethod -Uri "http://localhost:5000/api/auth/me" -Headers @{ Authorization = "Bearer $($loginResult.token)" }
-    $profileResult.user
-} finally {
-    $loginBody = $null
-    $loginResult = $null
-    $loginCredentials = $null
-}
+npm.cmd run verify:admin
 ```
 
-Expect an HTTP 200 profile with the database role `System Administrator` and no password/hash. Keep the JWT private; use HTTPS for any non-local deployment. This task does not run these operator commands or create real accounts.
+The script uses the trusted CA at `$HOME\Documents\IM101-Backups\supabase-v2-ca.crt` by default. If yours is elsewhere, set `NODE_EXTRA_CA_CERTS` to that private certificate path first. Ensure the private `.env` (or process environment) contains the intended V2 `DATABASE_URL`. At the prompts, enter the V2 project reference obtained independently from its dashboard, then the existing administrator email and password using the private credential prompt. Do not run this through Codex or share credentials, tokens, raw responses, or errors.
+
+`scripts/verify-admin-login.ps1` retains the reviewed verification procedure (PowerShell 7.3+ compatible). It validates the effective Supabase V2 host/user, exactly one `sslmode=verify-full`, and TLS verification before starting the existing backend on a temporary loopback port. It sends exactly one login request and one profile request, verifies the JWT signature, issuer, audience, subject and 15-minute lifetime, checks the System Administrator database role and exact response fields, then stops the server and disconnects automatically. The handlers perform database reads only; no provisioning, schema changes, or record writes occur. Credentials travel through standard input, never command arguments or files. The random JWT secret exists only in the child process and is never written to `.env`.
+
+Exit code 0 means PASS; 1 means refusal or failure. Report only PASS or the sanitized failure stage. A configuration failure requires checking private V2 settings, not disabling TLS. Close the temporary terminal afterward: clearing variables does not guarantee erasure of immutable strings. HTTP is used only on loopback; use HTTPS for non-local deployment.
+
+There is no production role-protected business endpoint yet. `/api/auth/me` verifies authentication and reloads the database role, but live RBAC allow/deny verification must wait for a business module. Existing database-free RBAC tests cover all approved roles, denials, spoofed claims, and role changes. Public deployment still requires login throttling; this foundation has no individual token logout/revocation.
+
+### Existing administrator password recovery
+
+For a forgotten password, follow the [local administrator recovery procedure](docs/administrator-password-recovery.md). `npm.cmd run reset:admin-password` privately prompts for a new password twice and requires an exact confirmation naming the email and V2 project before database access. It refuses missing, inactive or non-administrator accounts and updates only the selected existing user's password hash in a serializable transaction. It does not create administrators, assign roles, expose a public reset API, or invalidate existing JWTs. Failures print sanitized stages; uncertain commit or cleanup outcomes require private verification before retrying. Recovery is manual and is not part of login, installation, tests or migrations.
+
+### Phase 6 dependency security review
+
+The lockfile updates `body-parser` from 2.3.0 to 2.4.0 (compressed-body denial of service) and development-only `fast-uri` from 3.1.8 to 3.1.9 (URI parsing/normalization advisories). The parser's required `qs` dependency also moves from 6.16.0 to 6.16.1. These updates fit the existing dependency ranges; Express and Prisma versions and direct dependency declarations are unchanged. See the upstream [body-parser advisory](https://github.com/advisories/GHSA-27r3-jxmh-p828) and [fast-uri advisory](https://github.com/advisories/GHSA-wjr9-j795-jxcr). Use `npm ci` to install the reviewed lockfile and `npm run audit` to check current advisories.

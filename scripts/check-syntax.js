@@ -9,6 +9,8 @@ const files = [
     "src/facilities.js",
     "src/equipment.js",
     "src/reservation-statuses.js",
+    "src/reservations.js",
+    "tests/reservations.test.js",
     "tests/reservation-statuses.test.js",
     "tests/equipment.test.js",
     "tests/facilities.test.js",

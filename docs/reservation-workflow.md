@@ -4,6 +4,45 @@ This work is not deployed. Never apply these migrations through the normal quali
 suite or against live Supabase without separate operator authorization. The approved
 DBML, Prisma schema and original V2 migration remain unchanged.
 
+## PROVISIONAL creation policies: instructor approval required before deployment
+
+POST /api/reservations accepts only facilityId, purpose, startDatetime, endDatetime.
+The existing pure structural validator trims purpose, counts Unicode code points,
+requires timezone-aware valid timestamps, and rejects precision beyond milliseconds.
+The authenticated user is the requester; approvedBy is NULL and the real Pending
+lookup ID is resolved in PostgreSQL. All four agreed status names must exist; no
+status is inserted or assigned a fixed ID. Pending requests may overlap each other.
+
+PROVISIONAL: start must be strictly future at the database time check; maximum
+duration is eight elapsed hours; both endpoints must be within 90 days of that
+check; no buffers; creation is rejected if an Approved interval overlaps. Only
+the exact existing facility status `Available` is eligible; all other strings are
+unavailable. That eligibility interpretation also requires final policy review.
+Boundaries are inclusive at eight hours and the 90-day horizon. PostgreSQL checks
+these rules again, using its clock after facility locking; it does not trust the
+API's clock or structural validation alone. SQL rejects submillisecond inputs too.
+
+Real PostgreSQL verification exposed an eight-hour readback shift when the Windows
+cluster's default timezone was Asia/Manila. The installed adapter-pg timestamptz
+decoder assumes server UTC. Backend adapter startup options now explicitly pin UTC
+for every connection; URL-level `options` overrides are rejected for operator review.
+This does not weaken TLS or change credentials. Operators with custom startup options
+must review that configuration before deployment. The isolated test retains the
+non-UTC server default and uses the same UTC adapter option, so it checks the fix
+rather than hiding the mismatch by changing the test server's timezone.
+
+The actual create_reservation PostgreSQL procedure is called through a fixed,
+parameterized CALL on the gateway transaction. Its INOUT reservation ID must start
+NULL. Prisma receives the database-generated ID, reads the explicit scalar projection
+inside that transaction and returns HTTP 201 only after transaction resolution.
+Actor, role and status rows are locked during the procedure. Future procedures must
+use the same facility locking and Serializable conflict-read protocol.
+
+Only whitelisted SQLSTATE errors map to fixed HTTP 400/401/403/404/409/503 responses.
+Serialization/deadlock conflicts return 409 without retries. Unknown errors and lost
+commit acknowledgements return generic 500. No response proves rollback after a lost
+connection; reconcile before any manual retry. No cleanup writes run after failures.
+
 ## Audit and role prerequisites
 
 The additive audit migration requires operator-provisioned NOLOGIN, NOSUPERUSER,

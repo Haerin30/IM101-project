@@ -818,10 +818,10 @@ test("Reservation reads enforce database ownership predicates with mocked Prisma
         },
     );
     await scenario(
-        "write methods and action URLs are absent and no database operation can mutate fixtures",
+        "unsupported editing and deletion methods remain absent and cannot mutate fixtures",
         async () => {
             const before = structuredClone(rows);
-            for (const method of ["POST", "PUT", "PATCH", "DELETE"])
+            for (const method of ["PUT", "PATCH", "DELETE"])
                 for (const path of [
                     "",
                     "/402",

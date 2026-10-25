@@ -276,7 +276,11 @@ test("acquisition, serialization, timeout and uncertain completion failures are 
             run({ userId: 37 }, () => {
                 invoked++;
             }),
-            sanitized("TRANSACTION_FAILED"),
+            sanitized(
+                option.commitError?.code === "P2034"
+                    ? "RESERVATION_CONFLICT"
+                    : "TRANSACTION_FAILED",
+            ),
         );
         assert.equal(
             calls.filter((call) => call.type === "getPrisma").length,
@@ -296,7 +300,10 @@ test("gateway imports no live connection or environment and logs nothing; SQL id
     };
     const context = vm.createContext({
         module: { exports: {} },
-        require: forbidden,
+        require: (name) => {
+            assert.equal(name, "./reservation-errors");
+            return require("../src/reservation-errors");
+        },
         console: new Proxy({}, { get: forbidden }),
         fetch: forbidden,
         process: new Proxy({}, { get: forbidden }),

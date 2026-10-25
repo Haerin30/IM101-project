@@ -97,6 +97,15 @@ function createReservations({ getPrisma, requireRoles }) {
             reservation: reservationResponse(reservation),
         });
     });
+    router.use(
+        require("./reservation-writes").createReservationWrites({
+            getPrisma,
+            requireRoles,
+            readRoles,
+            reservationSelect,
+            reservationResponse,
+        }),
+    );
     return router;
 }
 

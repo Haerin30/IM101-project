@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 
-async function run({ pool }) {
+async function run({ pool, config }) {
     let passed = 0;
     async function check(name, operation) {
         try {
@@ -12,6 +12,8 @@ async function run({ pool }) {
             console.error(
                 `FAIL: ${name}; diagnostic=${/^[A-Z0-9_]{5,30}$/.test(error.code || "") ? error.code : "ASSERTION_OR_DRIVER_FAILURE"}`,
             );
+            const checkpoint = /^CHECK_[A-Z_]+-?\d*/.exec(error.message || "");
+            if (checkpoint) console.error(checkpoint[0]);
             throw error;
         }
     }
@@ -198,6 +200,7 @@ async function run({ pool }) {
             );
         },
     );
+    await require("./workflow.pg").run({ pool, config, check, transaction });
     console.log(`Isolated PostgreSQL checks passed: ${passed}`);
 }
 module.exports = { run };

@@ -16,6 +16,13 @@ BEGIN
     OR pg_catalog.has_table_privilege('im101_reservation_runtime', 'public.audit_logs', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER') THEN
     RAISE EXCEPTION USING ERRCODE = 'R5031', MESSAGE = 'Reservation deployment prerequisites not satisfied.';
   END IF;
+  IF pg_catalog.has_any_column_privilege('im101_reservation_runtime', 'public.reservations', 'INSERT,UPDATE')
+    OR pg_catalog.has_any_column_privilege('im101_reservation_runtime', 'public.audit_logs', 'SELECT,INSERT,UPDATE')
+    OR pg_catalog.has_schema_privilege('im101_reservation_runtime', 'public', 'CREATE')
+    OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.member
+      WHERE r.rolname='im101_reservation_runtime') THEN
+    RAISE EXCEPTION USING ERRCODE = 'R5031', MESSAGE = 'Reservation deployment prerequisites not satisfied.';
+  END IF;
 END
 $check$;
 CREATE SCHEMA im101_private;

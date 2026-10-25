@@ -80,6 +80,7 @@ async function main() {
             "--auth-local=scram-sha-256",
             "--encoding=UTF8",
             "--no-locale",
+            "--no-sync",
         ]);
         const port = await new Promise((resolve, reject) => {
             const listener = net.createServer();

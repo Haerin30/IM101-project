@@ -252,6 +252,90 @@ async function run(context) {
                 );
             },
         );
+        await check(
+            "independent PostgreSQL connections contend for last units and one allocation commits",
+            async () => {
+                const dueDate = new Date(
+                    Date.now() + 5 * 86400000,
+                ).toISOString();
+                const input = {
+                    dueDate,
+                    items: [{ equipmentId: 101, quantity: 2 }],
+                };
+                const a = await request("POST", "/loans", input, 301),
+                    b = await request("POST", "/loans", input, 201);
+                assert.equal(a.status, 201);
+                assert.equal(b.status, 201);
+                const result = await context.race(
+                    (client) =>
+                        client.query(
+                            "UPDATE equipment_loans SET loan_status='Approved',approved_by=101 WHERE loan_id=$1",
+                            [a.body.loan.loanId],
+                        ),
+                    (client) =>
+                        client.query(
+                            "UPDATE equipment_loans SET loan_status='Approved',approved_by=102 WHERE loan_id=$1",
+                            [b.body.loan.loanId],
+                        ),
+                    [101, 102],
+                    ["40001", "40P01", "C4091"],
+                );
+                assert.equal(result.blocked, true);
+                assert.equal(
+                    [result.aError, result.bError].filter(Boolean).length,
+                    1,
+                );
+                assert.equal(
+                    (
+                        await prisma.equipment.findUnique({
+                            where: { equipmentId: 101 },
+                        })
+                    ).availableQuantity,
+                    0,
+                );
+                const winner = (
+                    await prisma.equipmentLoan.findMany({
+                        where: {
+                            loanId: {
+                                in: [a.body.loan.loanId, b.body.loan.loanId],
+                            },
+                            loanStatus: "Approved",
+                        },
+                        select: { loanId: true },
+                    })
+                )[0];
+                assert.equal(
+                    (
+                        await request(
+                            "POST",
+                            `/loans/${winner.loanId}/return`,
+                            {
+                                items: [
+                                    { equipmentId: 101, conditionIn: "Good" },
+                                ],
+                            },
+                            101,
+                        )
+                    ).status,
+                    200,
+                );
+            },
+        );
+        await require("./core-maintenance.pg").run({
+            pool,
+            prisma,
+            check,
+            request,
+            race: context.race,
+        });
+        await require("./core-audit.pg").run({
+            pool,
+            config: context.config,
+            prisma,
+            runtimePool: context.runtimePool,
+            check,
+            request,
+        });
     } finally {
         await new Promise((resolve) => server.close(resolve));
     }

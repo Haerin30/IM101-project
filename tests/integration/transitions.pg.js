@@ -67,7 +67,12 @@ async function run({
             assert.equal(audit.new_value.status_id, 29);
         },
     );
-    async function race(first, second, actors = [101, 102]) {
+    async function race(
+        first,
+        second,
+        actors = [101, 102],
+        allowedErrors = ["40001", "40P01", "R4091"],
+    ) {
         const a = await runtimePool.connect(),
             b = await runtimePool.connect();
         let bPending;
@@ -133,8 +138,7 @@ async function run({
                 }
             } else await b.query("ROLLBACK");
             for (const error of [aError, bError])
-                if (error)
-                    assert.ok(["40001", "40P01", "R4091"].includes(error.code));
+                if (error) assert.ok(allowedErrors.includes(error.code));
             return { aError, bError, blocked };
         } finally {
             await Promise.all([a.query("ROLLBACK"), b.query("ROLLBACK")]);

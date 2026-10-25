@@ -35,7 +35,7 @@ function body(value, required, optional = []) {
         refuse();
     return value;
 }
-function text(value, max) {
+function text(value, max, multiline = false) {
     if (
         typeof value !== "string" ||
         !value.isWellFormed() ||
@@ -43,7 +43,10 @@ function text(value, max) {
         [...value.trim()].length > max ||
         [...value.trim()].some((character) => {
             const code = character.codePointAt(0);
-            return code < 32 || (code >= 127 && code <= 159);
+            return (
+                (code < 32 && !(multiline && [9, 10, 13].includes(code))) ||
+                (code >= 127 && code <= 159)
+            );
         })
     )
         refuse();
@@ -150,6 +153,16 @@ async function now(tx) {
 }
 function noQuery(req) {
     if (Object.keys(req.query).length) refuse();
+    const hasBody =
+        (req.get("content-length") !== undefined &&
+            req.get("content-length") !== "0") ||
+        Boolean(req.get("transfer-encoding"));
+    if (
+        ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) &&
+        hasBody &&
+        !req.is("application/json")
+    )
+        refuse();
 }
 module.exports = {
     roles,

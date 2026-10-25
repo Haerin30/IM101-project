@@ -52,3 +52,13 @@ test("loan junction validation preserves quantities rejects duplicates and clien
         items([{ equipmentId: 1, conditionIn: "Unknown" }], true),
     );
 });
+
+test("maintenance notes allow line breaks but reject unsafe controls and malformed Unicode", () => {
+    assert.equal(
+        c.text(" First line\nSecond line ", 100, true),
+        "First line\nSecond line",
+    );
+    assert.throws(() => c.text("a\u0000b", 100, true));
+    assert.throws(() => c.text("\ud800", 100, true));
+    assert.throws(() => c.text("x".repeat(101), 100, true));
+});

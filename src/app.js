@@ -52,12 +52,45 @@ function createApp(options = {}) {
             requireRoles,
         }),
     );
+    app.use(
+        "/api/maintenance",
+        require("./maintenance").createMaintenance({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
+    app.use(
+        "/api/assignments",
+        require("./assignments").createAssignments({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
+    app.use(
+        "/api",
+        require("./catalog").createCatalog({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
     app.get("/api/health", (req, res) => {
         res.json({
             success: true,
             message: "Campus Facility Management API is running.",
         });
     });
+    // Build assets only: never expose client sources, environment or repository files.
+    app.use(
+        express.static(require("node:path").join(__dirname, "../client/dist"), {
+            setHeaders(res) {
+                res.setHeader("X-Content-Type-Options", "nosniff");
+                res.setHeader(
+                    "Content-Security-Policy",
+                    "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+                );
+            },
+        }),
+    );
     app.use((error, req, res, next) => {
         res.set("Cache-Control", "no-store");
         const status =

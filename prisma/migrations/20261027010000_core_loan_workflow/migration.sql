@@ -10,6 +10,7 @@ BEGIN
    RAISE EXCEPTION USING ERRCODE='C4091',MESSAGE='Core deployment prerequisites not satisfied.';
   END IF;
  END LOOP;
+ IF pg_catalog.has_table_privilege('im101_core_runtime','public.audit_logs','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER') OR pg_catalog.has_any_column_privilege('im101_core_runtime','public.audit_logs','SELECT,INSERT,UPDATE') OR pg_catalog.has_schema_privilege('im101_core_runtime','public','CREATE') THEN RAISE EXCEPTION USING ERRCODE='C4091',MESSAGE='Core deployment prerequisites not satisfied.'; END IF;
 END $preflight$;
 GRANT USAGE ON SCHEMA public,im101_private TO im101_core_owner,im101_core_runtime,im101_core_audit_writer;
 GRANT SELECT(user_id,role_id,is_active),UPDATE(user_id) ON public.users TO im101_core_owner;
@@ -38,7 +39,7 @@ ALTER FUNCTION im101_private.core_actor() OWNER TO im101_core_owner;
 REVOKE ALL ON FUNCTION im101_private.core_actor() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION im101_private.core_actor() TO im101_core_runtime;
 CREATE FUNCTION im101_private.loan_workflow() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $loan$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp SET timezone='UTC' AS $loan$
 DECLARE who record; item record; n integer:=0;
 BEGIN
  IF TG_RELID<>'public.equipment_loans'::regclass OR TG_WHEN<>'BEFORE' THEN RAISE EXCEPTION USING ERRCODE='C4031',MESSAGE='Loan operation refused.'; END IF;

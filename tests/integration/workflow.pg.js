@@ -32,6 +32,7 @@ async function run({ pool, config, check, transaction }) {
         user: "im101_test_runtime",
         password,
         max: 4,
+        options: "-c timezone=UTC",
     });
     const prisma = new PrismaClient({
         adapter: new PrismaPg({
@@ -192,6 +193,17 @@ async function run({ pool, config, check, transaction }) {
             start,
             end,
             ...transitions,
+        });
+        await require("./core.pg").run({
+            ...transitions,
+            pool,
+            config,
+            prisma,
+            runtimePool,
+            gateway,
+            create,
+            check,
+            transaction,
         });
     } finally {
         await prisma.$disconnect();

@@ -1,4 +1,11 @@
 const sqlCodes = {
+    C4001: "CORE_INPUT",
+    C4011: "CORE_AUTHENTICATION",
+    C4031: "CORE_ACCESS",
+    C4041: "CORE_NOT_FOUND",
+    C4091: "CORE_CONFLICT",
+    23505: "CORE_CONFLICT",
+    23503: "CORE_CONFLICT",
     R4001: "RESERVATION_INPUT",
     R4011: "RESERVATION_AUTHENTICATION",
     R4031: "RESERVATION_ACCESS",
@@ -13,6 +20,7 @@ const sqlCodes = {
 function reservationErrorCode(error) {
     try {
         if (error?.code === "P2034") return "RESERVATION_CONFLICT";
+        if (["P2002", "P2003"].includes(error?.code)) return "CORE_CONFLICT";
         for (const code of [
             error?.code,
             error?.meta?.code,

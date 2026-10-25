@@ -193,6 +193,16 @@ async function run({ pool, config, check, transaction }) {
             end,
             ...transitions,
         });
+        await require("./core.pg").run({
+            pool,
+            config,
+            prisma,
+            runtimePool,
+            gateway,
+            create,
+            check,
+            transaction,
+        });
     } finally {
         await prisma.$disconnect();
         await runtimePool.end();

@@ -45,6 +45,13 @@ function createApp(options = {}) {
             requireRoles,
         }),
     );
+    app.use(
+        "/api/loans",
+        require("./loans").createLoans({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
     app.get("/api/health", (req, res) => {
         res.json({
             success: true,

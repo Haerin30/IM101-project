@@ -1,6 +1,6 @@
 # Campus Facility Management System
 
-An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, and Buildings, Facilities, and Equipment CRUD.
+An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, Buildings/Facilities/Equipment CRUD, and an offline-verified facility reservation workflow awaiting deployment approval.
 
 The stack is Node.js 24, Express 5, JavaScript (CommonJS), Prisma 7.10.1, and PostgreSQL.
 
@@ -39,7 +39,7 @@ The unchanged `prisma-client-js` generator produces CommonJS-compatible JavaScri
 
 `npm run db:check` connects, runs only `SELECT 1 AS ok`, and disconnects even after a failure. It prints PASS/FAIL and exits with code 0/1. Failures intentionally omit driver details to protect credentials. It does not read application tables. The Express health endpoint remains independent of this module.
 
-Equipment borrowing/return, reservations, maintenance workflows, seed data, audit triggers, and stored procedures require new implementation against the approved schema. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
+Equipment borrowing/return and maintenance workflows remain future work. Facility reservation procedures, audit and closure triggers are reviewable additive migration artifacts, not deployed database objects. No reservation statuses are provisioned automatically. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
 
 ## Authentication
 
@@ -137,7 +137,8 @@ to UTC ISO strings with millisecond precision. Excess precision is rejected with
 rounding. See the [validation contract](docs/reservation-input-validation.md) for
 the exact timestamp profile, error codes and deferred checks. It performs no
 database access, current-time checks or booking-policy enforcement, and is not
-connected to any route. Existing GET APIs remain unchanged; there is no POST API.
+an HTTP handler itself. Current reservation creation reuses it as described below;
+existing GET behavior remains unchanged.
 
 ## Reservation transaction context (Reservation Management Task 4)
 
@@ -150,6 +151,34 @@ transaction limits and sanitized errors, without automatic retries. See the
 usage, authorization requirements, uncertain-outcome handling and required future
 isolated-PostgreSQL tests. No route, reservation mutation, procedure or trigger is
 introduced; existing GET endpoints remain unchanged.
+
+## Reservation workflow (Tasks 5–11)
+
+The facility-only workflow adds POST `/api/reservations` and POST
+`/api/reservations/:id/approve`, `/reject`, and `/cancel`. Existing JWT, active-user
+checks and database-backed RBAC remain in use. Four actual PostgreSQL procedures,
+an allowlisted audit trigger and a facility closure guard are supplied as six
+additive migrations. They preserve the professor-approved schema and original
+migration. No general editing, rescheduling, reopening, hard deletion or equipment
+allocation endpoint is added.
+
+**PROVISIONAL policies require final instructor/operator approval before deployment:**
+future dates, eight elapsed hours maximum, both endpoints within 90 days, no buffers,
+creation conflict checks, administrator cancellation override, and active/future
+Approved bookings blocking facility closure. See the
+[workflow and deployment contract](docs/reservation-workflow.md) for exact rules,
+privileges, request/response structures, recovery limitations and prerequisites.
+
+`npm run quality` remains database-free and never migrates or provisions anything.
+For opt-in disposable PostgreSQL 17 verification, set `IM101_TEST_PG_BIN` to trusted
+local binaries and run `npm run test:postgres`. The harness creates its own loopback
+cluster, generated credentials and fixture data; it never selects the normal
+DATABASE_URL, an installed service, a remote database or Supabase. CI runs the
+database-free quality workflow; no deployment or migration workflow was added.
+
+Backend connections explicitly use UTC startup options because the pinned adapter
+requires UTC for accurate timestamptz decoding. URL-level startup `options` overrides
+are refused for operator review. Existing TLS and V2 operator safeguards remain.
 
 ## Role checks
 

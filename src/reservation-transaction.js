@@ -1,3 +1,5 @@
+const { reservationErrorCode } = require("./reservation-errors");
+
 function gatewayError(code) {
     const error = new Error("Reservation transaction could not be completed.");
     error.code = code;
@@ -62,10 +64,10 @@ function createReservationTransaction({ getPrisma }) {
                     timeout: 15000,
                 },
             );
-        } catch {
+        } catch (error) {
             // Never retain driver/callback messages, metadata or causes. A failure
             // does not prove rollback or rule out an uncertain COMMIT outcome.
-            throw gatewayError(stage);
+            throw gatewayError(reservationErrorCode(error) || stage);
         }
     };
 }

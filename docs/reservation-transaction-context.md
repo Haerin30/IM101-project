@@ -4,7 +4,8 @@
 `src/reservation-transaction.js` returns
 `runReservationTransaction(authenticatedUser, operation)`. Inject the existing
 `getPrisma` dependency, as routes already do. The factory does not open a connection.
-No existing route imports this helper; no reservation mutation endpoint is added.
+Task 4 introduced no mutation endpoint. Tasks 6 onward use this helper from the
+reservation mutation router; existing GET routes do not set actor context.
 
 ## Trusted backend usage
 
@@ -70,6 +71,9 @@ References: [Prisma v7 interactive transactions](https://www.prisma.io/docs/orm/
 
 Errors have one fixed message and one fixed code, with no original cause,
 driver message, metadata, SQL, token, profile or request content. Nothing is logged.
+Tasks 6 onward additionally map a fixed allowlist of PostgreSQL refusal SQLSTATEs
+and serialization/deadlock conflicts to sanitized RESERVATION_* codes. These codes
+support fixed HTTP responses; unknown errors retain only the gateway stage below.
 
 | Code                              | Meaning                                      |
 | --------------------------------- | -------------------------------------------- |

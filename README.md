@@ -91,6 +91,42 @@ a sanitized 500. Tests use injected Prisma mocks with real local HTTP/JWT/RBAC;
 they never connect to Supabase. Reservation creation, transitions, procedures and
 audit triggers remain outside Task 1.
 
+## Read-only Reservations API (Reservation Management Task 2)
+
+`GET /api/reservations` and `GET /api/reservations/:id` reuse the existing JWT,
+active-user and database-role checks. The `System Administrator` role can read all
+reservations. `Facility/Maintenance Staff` and
+`Faculty / Student Organization Representative` can read only records whose `requestedBy` matches their current
+authenticated user ID. Both list and detail queries apply ownership in Prisma;
+inaccessible and nonexistent IDs return the same 404 response. Requester IDs,
+roles and other client fields cannot override that scope.
+
+Lists return `{ "success": true, "reservations": [...], "pagination": { "page": 1,
+"limit": 20, "hasMore": false } }`. Pagination defaults to page 1 and limit 20;
+limit must be between 1 and 100, and the database fetches at most limit + 1 scoped rows.
+Rows are ordered by the unique `reservationId` ascending. The extra scoped row
+determines `hasMore`; no total or other users' counts are returned. Offset pages
+may shift if records change between requests.
+
+Only positive decimal page/limit/ID strings without signs, exponents, fractions or
+leading zeros are accepted. IDs/pages must fit a PostgreSQL integer; offsets above
+2,147,483,647 are rejected. Lists support only page and limit; detail requests
+support no query parameters. Invalid values, repeated parameters and unsupported
+filters return 400.
+
+Detail responses use `{ "success": true, "reservation": { ... } }`. Both endpoints
+select and serialize only `reservationId`, `facilityId`, `requestedBy`, `approvedBy`,
+`statusId`, `purpose`, `startDatetime`, `endDatetime`, and `createdAt`. Nullable
+approvers stay null; Prisma Date values serialize as UTC ISO timestamps. No nested
+users or equipment are returned. Responses use `Cache-Control: no-store`, existing
+401/403 conventions, and sanitized 500 errors.
+
+Tests use injected read-only Prisma mocks and local HTTP/JWT requests, asserting
+the actual ownership predicates, bounded pagination, projection and ordering.
+Neither endpoint creates reservations or statuses or exposes transition/write
+operations. Live database access, procedures and audit triggers remain outside
+Task 2. Task 1's independent status lookup remains unchanged.
+
 ## Role checks
 
 `createAuth({ getPrisma, jwtSecret })` also returns `requireRoles(allowedRoles)`. Supply a nonempty array of exact role names when defining a route. It authenticates the bearer token and reloads the current active user and role before checking permission, so it can be mounted directly without a separate `authenticate` call. It returns 401 for failed authentication and 403 with a generic `Access denied.` message when the database role is not permitted. Database failures flow to the app's existing safe error handler.

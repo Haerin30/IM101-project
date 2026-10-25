@@ -38,6 +38,13 @@ function createApp(options = {}) {
             requireRoles,
         }),
     );
+    app.use(
+        "/api/reservations",
+        require("./reservations").createReservations({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
     app.get("/api/health", (req, res) => {
         res.json({
             success: true,

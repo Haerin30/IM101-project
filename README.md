@@ -127,6 +127,18 @@ Neither endpoint creates reservations or statuses or exposes transition/write
 operations. Live database access, procedures and audit triggers remain outside
 Task 2. Task 1's independent status lookup remains unchanged.
 
+## Reservation input validation (Reservation Management Task 3)
+
+`validateReservationCreation` from `src/reservation-validation.js` is a pure helper
+for future creation code. It accepts only facilityId, purpose, startDatetime and
+endDatetime, and returns normalized data or fixed field/error codes. It trims
+purpose and counts Unicode code points; strict timezone-aware timestamps normalize
+to UTC ISO strings with millisecond precision. Excess precision is rejected without
+rounding. See the [validation contract](docs/reservation-input-validation.md) for
+the exact timestamp profile, error codes and deferred checks. It performs no
+database access, current-time checks or booking-policy enforcement, and is not
+connected to any route. Existing GET APIs remain unchanged; there is no POST API.
+
 ## Role checks
 
 `createAuth({ getPrisma, jwtSecret })` also returns `requireRoles(allowedRoles)`. Supply a nonempty array of exact role names when defining a route. It authenticates the bearer token and reloads the current active user and role before checking permission, so it can be mounted directly without a separate `authenticate` call. It returns 401 for failed authentication and 403 with a generic `Access denied.` message when the database role is not permitted. Database failures flow to the app's existing safe error handler.

@@ -9,9 +9,11 @@ function createReservationWrites({
     readRoles,
     reservationSelect,
     reservationResponse,
+    positiveInteger,
 }) {
     const router = Router();
     const creators = requireRoles(readRoles);
+    const reviewers = requireRoles(["System Administrator"]);
     const run = createReservationTransaction({ getPrisma });
     function respondError(error, res, next) {
         const mapped = publicErrors[error?.code];
@@ -22,12 +24,10 @@ function createReservationWrites({
     }
     router.post("/", creators, async (req, res, next) => {
         if (Object.keys(req.query).length)
-            return res
-                .status(400)
-                .json({
-                    success: false,
-                    message: "Invalid reservation input.",
-                });
+            return res.status(400).json({
+                success: false,
+                message: "Invalid reservation input.",
+            });
         const validated = validateReservationCreation(req.body);
         if (!validated.success) return res.status(400).json(validated);
         const { facilityId, purpose, startDatetime, endDatetime } =
@@ -57,6 +57,59 @@ function createReservationWrites({
             respondError(error, res, next);
         }
     });
+    function actionRoute(name, authorization, call) {
+        router.post(`/:id/${name}`, authorization, async (req, res, next) => {
+            const id = positiveInteger(req.params.id);
+            if (
+                id === null ||
+                Object.keys(req.query).length ||
+                (req.body !== undefined &&
+                    (!req.body ||
+                        typeof req.body !== "object" ||
+                        Array.isArray(req.body) ||
+                        Object.keys(req.body).length))
+            )
+                return res
+                    .status(400)
+                    .json({
+                        success: false,
+                        message: "Invalid reservation transition input.",
+                    });
+            try {
+                const reservation = await run(req.user, async (tx) => {
+                    const result = await call(tx, id);
+                    if (result?.length !== 1 || result[0]?.p_result_id !== id)
+                        throw Error(
+                            "Reservation procedure acknowledgement invalid.",
+                        );
+                    const row = await tx.reservation.findFirst({
+                        where: {
+                            reservationId: id,
+                            ...(req.user.role.roleName ===
+                            "System Administrator"
+                                ? {}
+                                : { requestedBy: req.user.userId }),
+                        },
+                        select: reservationSelect,
+                    });
+                    if (!row)
+                        throw Error(
+                            "Reservation procedure acknowledgement invalid.",
+                        );
+                    return reservationResponse(row);
+                });
+                res.json({ success: true, reservation });
+            } catch (error) {
+                respondError(error, res, next);
+            }
+        });
+    }
+    actionRoute(
+        "approve",
+        reviewers,
+        (tx, id) =>
+            tx.$queryRaw`CALL im101_private.approve_reservation(${id}::integer, NULL::integer)`,
+    );
     return router;
 }
 module.exports = { createReservationWrites };

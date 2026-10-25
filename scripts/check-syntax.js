@@ -16,6 +16,8 @@ const files = [
     "src/reservation-writes.js",
     "tests/reservation-writes.test.js",
     "tests/db-configuration.test.js",
+    "tests/reservation-actions.test.js",
+    "tests/integration/transitions.pg.js",
     "tests/integration/workflow.pg.js",
     "scripts/test-reservations-postgres.js",
     "tests/integration/reservations.pg.js",

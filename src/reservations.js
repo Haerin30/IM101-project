@@ -104,6 +104,7 @@ function createReservations({ getPrisma, requireRoles }) {
             readRoles,
             reservationSelect,
             reservationResponse,
+            positiveInteger,
         }),
     );
     return router;

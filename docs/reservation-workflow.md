@@ -43,6 +43,22 @@ Serialization/deadlock conflicts return 409 without retries. Unknown errors and 
 commit acknowledgements return generic 500. No response proves rollback after a lost
 connection; reconcile before any manual retry. No cleanup writes run after failures.
 
+## Approval
+
+POST /api/reservations/:id/approve accepts no query or body fields. It uses current
+System Administrator RBAC and the actual approve_reservation procedure. PostgreSQL
+rechecks active role, prohibits self-approval, requires Pending, locks the facility
+then the reservation, and rechecks eligibility and all provisional time rules.
+Only Approved records block the strict overlap predicate (start < end and end >
+start); adjacency is allowed. The original requester is preserved and approvedBy
+is the acting administrator. An audit UPDATE is required in the same transaction.
+
+Concurrent callers use independent Serializable transactions, fixed lock ordering,
+and conflict predicate reads. A conflicting transaction is refused, never silently
+retried. Serializable isolation can conservatively reject otherwise nonconflicting
+operations too. A 409 requires reloading; it is not permission to blindly retry a
+write. Malformed JSON parser errors also receive Cache-Control: no-store.
+
 ## Audit and role prerequisites
 
 The additive audit migration requires operator-provisioned NOLOGIN, NOSUPERUSER,

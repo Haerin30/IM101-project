@@ -167,6 +167,17 @@ async function run({ pool, config, check, transaction }) {
                     await assert.rejects(runtimePool.query(sql)); // Fixed test attacks only; never application input.
             },
         );
+        await require("./transitions.pg").run({
+            pool,
+            prisma,
+            runtimePool,
+            gateway,
+            create,
+            check,
+            transaction,
+            start,
+            end,
+        });
     } finally {
         await prisma.$disconnect();
         await runtimePool.end();

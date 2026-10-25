@@ -52,6 +52,7 @@ function createApp(options = {}) {
         });
     });
     app.use((error, req, res, next) => {
+        res.set("Cache-Control", "no-store");
         const status =
             error.type === "entity.parse.failed"
                 ? 400

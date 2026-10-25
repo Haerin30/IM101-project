@@ -81,6 +81,25 @@ the cancelling actor. Rejected/Cancelled are terminal; no hard-delete, editing,
 rescheduling, reopening or equipment allocation endpoint exists. An unknown commit
 outcome never triggers cleanup or retry.
 
+## Facility closure: PROVISIONAL
+
+The additive BEFORE UPDATE OF status trigger guards the existing Facilities API.
+Any resulting status other than exact `Available` requires a Serializable
+transaction and all four status lookups. An Approved booking with end_datetime
+strictly after the database decision time blocks closure, including already-active
+bookings; completed bookings do not. Pending, Rejected and Cancelled do not block.
+The existing API already uses Serializable transactions for updates. The facility
+row lock and reservation predicate reads participate in the same protocol as
+approval, preventing an approval/closure race from committing an unsafe final state.
+Both operations can receive a conflict; no automatic retry is added.
+
+The trigger changes no facility fields and introduces no new facility endpoint.
+Unknown custom status strings continue to be accepted by the management API but
+are considered unavailable for reservations. Existing NO ACTION foreign keys still
+prevent deleting facilities with reservation history, including completed history.
+Facility changes retain the existing administrator authentication/RBAC boundary;
+this trigger does not add facility audit logging or claim independent JWT validation.
+
 ## Audit and role prerequisites
 
 The additive audit migration requires operator-provisioned NOLOGIN, NOSUPERUSER,

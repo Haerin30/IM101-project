@@ -176,6 +176,19 @@ async function run({
             }
         },
     );
+    await require("./closures.pg").run({
+        pool,
+        gateway,
+        create,
+        check,
+        race,
+        approve,
+        cancel,
+        row,
+        start,
+        end,
+        transaction,
+    });
     return { cancel, fresh };
 }
 module.exports = { run };

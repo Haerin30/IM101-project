@@ -20,6 +20,7 @@ const files = [
     "tests/integration/transitions.pg.js",
     "tests/integration/rejections.pg.js",
     "tests/integration/cancellations.pg.js",
+    "tests/integration/closures.pg.js",
     "tests/integration/workflow.pg.js",
     "scripts/test-reservations-postgres.js",
     "tests/integration/reservations.pg.js",

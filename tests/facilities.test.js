@@ -751,6 +751,24 @@ test("Facilities CRUD uses local HTTP and isolated Prisma mocks", async (t) => {
             },
         );
         await scenario(
+            "reservation closure and configuration refusals are sanitized and rolled back",
+            async () => {
+                failure = "facility.update";
+                for (const [code, status] of [
+                    ["R4091", 409],
+                    ["R5031", 503],
+                ]) {
+                    failureCode = code;
+                    const response = await request("PUT", "/1", {
+                        status: "Closed",
+                    });
+                    assert.equal(response.status, status);
+                    assert.ok(!JSON.stringify(response).includes("PRIVATE"));
+                    assert.deepEqual(rows, [initial]);
+                }
+            },
+        );
+        await scenario(
             "unexpected Prisma codes and private metadata stay out of HTTP errors",
             async () => {
                 failure = "facility.create";

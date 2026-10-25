@@ -1,4 +1,5 @@
 const { Router } = require("express");
+const { reservationErrorCode } = require("./reservation-errors");
 
 const facilitySelect = {
     facilityId: true,
@@ -273,6 +274,22 @@ function createFacilities({ getPrisma, requireRoles }) {
                         message:
                             "Concurrent changes prevented this operation. Reload the facility before retrying.",
                     });
+                const reservationCode = reservationErrorCode(error);
+                if (reservationCode === "RESERVATION_CONFLICT")
+                    return res
+                        .status(409)
+                        .json({
+                            success: false,
+                            message:
+                                "Facility has active or future Approved reservations, or a concurrent change prevented closure. Reload before retrying.",
+                        });
+                if (reservationCode === "RESERVATION_CONFIGURATION")
+                    return res
+                        .status(503)
+                        .json({
+                            success: false,
+                            message: "Reservation configuration unavailable.",
+                        });
                 next(error);
             }
         };

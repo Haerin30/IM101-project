@@ -11,6 +11,8 @@ const files = [
     "src/reservation-statuses.js",
     "src/reservations.js",
     "src/reservation-validation.js",
+    "src/reservation-transaction.js",
+    "tests/reservation-transaction.test.js",
     "tests/reservation-validation.test.js",
     "tests/reservations.test.js",
     "tests/reservation-statuses.test.js",

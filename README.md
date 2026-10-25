@@ -139,6 +139,18 @@ the exact timestamp profile, error codes and deferred checks. It performs no
 database access, current-time checks or booking-policy enforcement, and is not
 connected to any route. Existing GET APIs remain unchanged; there is no POST API.
 
+## Reservation transaction context (Reservation Management Task 4)
+
+`createReservationTransaction({ getPrisma })` provides an internal gateway for
+future authenticated reservation operations. It validates the backend actor ID,
+sets transaction-local PostgreSQL actor context using bound SQL, and then runs
+the callback on the same Serializable transaction client. It uses existing
+transaction limits and sanitized errors, without automatic retries. See the
+[gateway contract](docs/reservation-transaction-context.md) for trusted `req.user`
+usage, authorization requirements, uncertain-outcome handling and required future
+isolated-PostgreSQL tests. No route, reservation mutation, procedure or trigger is
+introduced; existing GET endpoints remain unchanged.
+
 ## Role checks
 
 `createAuth({ getPrisma, jwtSecret })` also returns `requireRoles(allowedRoles)`. Supply a nonempty array of exact role names when defining a route. It authenticates the bearer token and reloads the current active user and role before checking permission, so it can be mounted directly without a separate `authenticate` call. It returns 401 for failed authentication and 403 with a generic `Access denied.` message when the database role is not permitted. Database failures flow to the app's existing safe error handler.

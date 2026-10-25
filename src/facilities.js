@@ -276,20 +276,16 @@ function createFacilities({ getPrisma, requireRoles }) {
                     });
                 const reservationCode = reservationErrorCode(error);
                 if (reservationCode === "RESERVATION_CONFLICT")
-                    return res
-                        .status(409)
-                        .json({
-                            success: false,
-                            message:
-                                "Facility has active or future Approved reservations, or a concurrent change prevented closure. Reload before retrying.",
-                        });
+                    return res.status(409).json({
+                        success: false,
+                        message:
+                            "Facility has active or future Approved reservations, or a concurrent change prevented closure. Reload before retrying.",
+                    });
                 if (reservationCode === "RESERVATION_CONFIGURATION")
-                    return res
-                        .status(503)
-                        .json({
-                            success: false,
-                            message: "Reservation configuration unavailable.",
-                        });
+                    return res.status(503).json({
+                        success: false,
+                        message: "Reservation configuration unavailable.",
+                    });
                 next(error);
             }
         };

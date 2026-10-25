@@ -22,7 +22,9 @@ async function run({ pool, config, check, transaction }) {
     );
     await pool.query(`GRANT USAGE ON SCHEMA public TO im101_reservation_runtime;
         GRANT SELECT ON public.roles,public.users,public.buildings,public.facility_types,public.facilities,
-          public.equipment_categories,public.equipment,public.reservation_status,public.reservations TO im101_reservation_runtime;
+          public.equipment_categories,public.equipment,public.reservation_status,public.reservations,
+          public.loan_items,public.reservation_equipment,public.maintenance_requests,public.equipment_loans,
+          public.maintenance_logs,public.facility_staff_assignments TO im101_reservation_runtime;
         GRANT INSERT,UPDATE,DELETE ON public.buildings,public.facilities,public.equipment TO im101_reservation_runtime;
         GRANT USAGE ON SEQUENCE public.buildings_building_id_seq,public.facilities_facility_id_seq,public.equipment_equipment_id_seq TO im101_reservation_runtime;`);
     const runtimePool = new Pool({
@@ -167,7 +169,7 @@ async function run({ pool, config, check, transaction }) {
                     await assert.rejects(runtimePool.query(sql)); // Fixed test attacks only; never application input.
             },
         );
-        await require("./transitions.pg").run({
+        const transitions = await require("./transitions.pg").run({
             pool,
             prisma,
             runtimePool,
@@ -177,6 +179,19 @@ async function run({ pool, config, check, transaction }) {
             transaction,
             start,
             end,
+        });
+        await require("./verification.pg").run({
+            pool,
+            config,
+            prisma,
+            runtimePool,
+            gateway,
+            create,
+            check,
+            transaction,
+            start,
+            end,
+            ...transitions,
         });
     } finally {
         await prisma.$disconnect();

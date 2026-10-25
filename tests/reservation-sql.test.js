@@ -26,6 +26,11 @@ test("integration harness accepts only its explicitly managed disposable loopbac
         { user: "postgres" },
         { managedCluster: false },
         { password: "production-credential" },
+        {
+            connectionString:
+                "postgresql://fixture:synthetic@remote.example.test/production",
+        },
+        { options: "-c timezone=UTC" },
     ])
         assert.throws(
             () => validateDisposableConfig({ ...config, ...patch }),

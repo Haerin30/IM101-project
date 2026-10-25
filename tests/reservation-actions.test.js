@@ -105,13 +105,14 @@ test("reservation transition HTTP security with transaction-only mocked procedur
         path = "707/approve",
         body = {},
         authorization = bearer(),
+        contentType = "application/json",
     ) {
         const response = await fetch(
             `http://127.0.0.1:${server.address().port}/api/reservations/${path}`,
             {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json",
+                    "Content-Type": contentType,
                     ...(authorization ? { Authorization: authorization } : {}),
                 },
                 body: JSON.stringify(body),
@@ -236,6 +237,26 @@ test("reservation transition HTTP security with transaction-only mocked procedur
             reset();
             assert.equal((await request("707/approve?actor=37")).status, 400);
             assert.deepEqual(calls, []);
+        },
+    );
+    await t.test(
+        "non-JSON transition bodies cannot bypass strict field rejection",
+        async () => {
+            for (const action of ["approve", "reject", "cancel"]) {
+                reset();
+                assert.equal(
+                    (
+                        await request(
+                            "707/" + action,
+                            { requestedBy: 37 },
+                            undefined,
+                            "text/plain",
+                        )
+                    ).status,
+                    400,
+                );
+                assert.deepEqual(calls, []);
+            }
         },
     );
     await t.test(

@@ -16,7 +16,11 @@ function createReservationWrites({
     const reviewers = requireRoles(["System Administrator"]);
     const run = createReservationTransaction({ getPrisma });
     function respondError(error, res, next) {
-        const mapped = publicErrors[error?.code];
+        const code = error?.code;
+        const mapped =
+            typeof code === "string" && Object.hasOwn(publicErrors, code)
+                ? publicErrors[code]
+                : null;
         if (!mapped) return next(error);
         return res
             .status(mapped[0])
@@ -60,9 +64,14 @@ function createReservationWrites({
     function actionRoute(name, authorization, call) {
         router.post(`/:id/${name}`, authorization, async (req, res, next) => {
             const id = positiveInteger(req.params.id);
+            const hasBody =
+                (req.get("content-length") !== undefined &&
+                    req.get("content-length") !== "0") ||
+                Boolean(req.get("transfer-encoding"));
             if (
                 id === null ||
                 Object.keys(req.query).length ||
+                (hasBody && !req.is("application/json")) ||
                 (req.body !== undefined &&
                     (!req.body ||
                         typeof req.body !== "object" ||

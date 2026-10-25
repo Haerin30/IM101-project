@@ -9,6 +9,18 @@ const { Pool } = require("pg");
 
 function validateDisposableConfig(config) {
     if (
+        !config ||
+        Object.keys(config).some(
+            (key) =>
+                ![
+                    "host",
+                    "port",
+                    "database",
+                    "user",
+                    "password",
+                    "managedCluster",
+                ].includes(key),
+        ) ||
         config?.host !== "127.0.0.1" ||
         !Number.isInteger(config.port) ||
         config.port < 1024 ||
@@ -24,7 +36,7 @@ function validateDisposableConfig(config) {
     return config;
 }
 
-function removeDisposableRoot(root, marker) {
+function assertDisposableRoot(root, marker) {
     const resolved = path.resolve(root);
     if (
         path.dirname(resolved) !== path.resolve(os.tmpdir()) ||
@@ -33,24 +45,43 @@ function removeDisposableRoot(root, marker) {
             marker
     )
         throw new Error("DISPOSABLE_CLEANUP_REFUSED");
-    fs.rmSync(resolved, { recursive: true });
+    if (fs.lstatSync(resolved).isSymbolicLink())
+        throw new Error("DISPOSABLE_CLEANUP_REFUSED");
+    return resolved;
 }
 
 async function main() {
     if (process.argv.length !== 3 || process.argv[2] !== "--local")
         throw new Error("EXPLICIT_LOCAL_TEST_FLAG_REQUIRED");
+    // Child process only: neither native tools nor drivers may inherit a service target.
+    for (const key of [
+        "DATABASE_URL",
+        "DIRECT_URL",
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGDATABASE",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+        "PGOPTIONS",
+        "PGPASSFILE",
+        "PGSSLMODE",
+    ])
+        delete process.env[key];
     const bin = process.env.IM101_TEST_PG_BIN;
     if (!bin || !path.isAbsolute(bin))
         throw new Error("LOCAL_POSTGRES_BIN_REQUIRED");
     const suffix = process.platform === "win32" ? ".exe" : "";
-    function native(name, args) {
+    function native(name, args, allowed = [0]) {
         const result = spawnSync(path.join(bin, name + suffix), args, {
             encoding: "utf8",
             windowsHide: true,
             timeout: 30000,
         });
-        if (result.status !== 0)
+        if (!allowed.includes(result.status))
             throw new Error("LOCAL_POSTGRES_COMMAND_FAILED");
+        return result.status;
     }
     for (const name of ["initdb", "pg_ctl"])
         if (!fs.existsSync(path.join(bin, name + suffix)))
@@ -66,7 +97,7 @@ async function main() {
     const password = randomBytes(32).toString("hex");
     const pwfile = path.join(root, "password");
     fs.writeFileSync(pwfile, password, { mode: 0o600 });
-    let started = false,
+    let startAttempted = false,
         pool;
     try {
         native("initdb", [
@@ -90,6 +121,7 @@ async function main() {
                 listener.close(() => resolve(selected));
             });
         });
+        startAttempted = true;
         native("pg_ctl", [
             "-D",
             data,
@@ -100,7 +132,6 @@ async function main() {
             "-w",
             "start",
         ]);
-        started = true;
         const database =
             "im101_reservation_disposable_" + randomBytes(12).toString("hex");
         const config = validateDisposableConfig({
@@ -134,9 +165,13 @@ async function main() {
         });
     } finally {
         if (pool && !pool.ended) await pool.end();
-        if (started)
+        const resolved = assertDisposableRoot(root, marker);
+        if (
+            startAttempted &&
+            native("pg_ctl", ["-D", data, "status"], [0, 3]) === 0
+        )
             native("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"]);
-        removeDisposableRoot(root, marker);
+        fs.rmSync(resolved, { recursive: true });
     }
 }
 

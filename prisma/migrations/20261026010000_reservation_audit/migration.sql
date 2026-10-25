@@ -9,6 +9,11 @@ BEGIN
       AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls) THEN
       RAISE EXCEPTION USING ERRCODE = 'R5031', MESSAGE = 'Reservation deployment prerequisites not satisfied.';
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles p ON p.oid=m.member WHERE p.rolname=r)
+      OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_roles p ON p.oid=c.relowner
+        WHERE p.rolname=r AND c.relnamespace='public'::regnamespace) THEN
+      RAISE EXCEPTION USING ERRCODE = 'R5031', MESSAGE = 'Reservation deployment prerequisites not satisfied.';
+    END IF;
   END LOOP;
   IF pg_catalog.pg_has_role('im101_reservation_runtime', 'im101_reservation_owner', 'MEMBER')
     OR pg_catalog.pg_has_role('im101_reservation_runtime', 'im101_reservation_audit_writer', 'MEMBER')

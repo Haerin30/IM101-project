@@ -1,12 +1,13 @@
 # Campus Facility Management System
 
-An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The V2 backend provides login, protected profile access, role checks, Buildings/Facilities/Equipment CRUD, and an offline-verified facility reservation workflow awaiting deployment approval.
+An IM101 project for managing campus facilities, equipment, reservations, loans, and maintenance. The backend provides authenticated management workflows and a role-aware React workspace. Database additions are verified against disposable local PostgreSQL, but remain unapplied to live Supabase and require deployment approval.
 
-The stack is Node.js 24, Express 5, JavaScript (CommonJS), Prisma 7.10.1, and PostgreSQL.
+The stack is Node.js 24, Express 5, JavaScript (CommonJS backend), Prisma 7.10.1, PostgreSQL, React and Vite.
 
 ## Folders
 
 - `src/`: the Express app, server, database connection, authentication, and Buildings, Facilities, and Equipment routes.
+- `client/`: React workspace, centralized API/session handling, forms, tables and frontend tests.
 - `tests/`: database-free authentication, role, Buildings, Facilities, Equipment, and operator-tool tests with controlled fixtures.
 - `prisma/`: the approved Prisma schema and V2 initial migration.
 - `docs/`: the [professor-approved database design](docs/professor-approved-schema.dbml).
@@ -21,6 +22,7 @@ Install Node.js 24, then run:
 
 ```sh
 npm ci
+npm --prefix client ci
 npm run prisma:generate
 npm run dev
 ```
@@ -28,6 +30,10 @@ npm run dev
 Set a private `JWT_SECRET` containing at least 32 bytes of cryptographically random secret material in `.env` or the process environment before starting. No default secret is provided; invalid configuration prevents startup. Open http://localhost:5000/api/health. Use `npm start` to run without automatic restarts. The health endpoint does not access PostgreSQL and does not check database readiness.
 
 Run `npm run quality` for schema validation, formatting, JavaScript syntax, lint checks, and the full automated test suite. `npm test` runs only the database-free tests. `npm run audit` checks dependency advisories.
+
+In a second terminal, run `npm --prefix client run dev` and open the printed local Vite URL. Its `/api` proxy targets the backend at localhost:5000. No example credentials or demo records are provided. Login requires an operator-configured backend; frontend tests and builds need no database. Bearer tokens remain in memory, expire after the server lifetime, and are cleared on logout or refresh.
+
+Run `npm --prefix client run build` to create ignored `client/dist` assets, which Express can serve at `/`. Hash navigation supports direct page links without a server fallback. Run `npm --prefix client run quality` or `npm --prefix client audit` for client-only checks. See [core workflows and deployment prerequisites](docs/core-workflows.md) before configuring database permissions or enabling the new workflows.
 
 ## Database connection
 
@@ -39,7 +45,7 @@ The unchanged `prisma-client-js` generator produces CommonJS-compatible JavaScri
 
 `npm run db:check` connects, runs only `SELECT 1 AS ok`, and disconnects even after a failure. It prints PASS/FAIL and exits with code 0/1. Failures intentionally omit driver details to protect credentials. It does not read application tables. The Express health endpoint remains independent of this module.
 
-Equipment borrowing/return and maintenance workflows remain future work. Facility reservation procedures, audit and closure triggers are reviewable additive migration artifacts, not deployed database objects. No reservation statuses are provisioned automatically. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
+Equipment loans, maintenance and staff assignments now have authenticated APIs and frontend workflows. Their three additive migrations and the six reservation migrations are reviewable artifacts, not deployed database objects. No lookup values are provisioned automatically. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
 
 ## Authentication
 

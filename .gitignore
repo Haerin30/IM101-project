@@ -14,3 +14,5 @@ node_modules/
 /requests/
 /tmp/
 *.request.json
+client/dist/
+client/coverage/

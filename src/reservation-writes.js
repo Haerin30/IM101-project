@@ -114,6 +114,12 @@ function createReservationWrites({
         (tx, id) =>
             tx.$queryRaw`CALL im101_private.reject_reservation(${id}::integer, NULL::integer)`,
     );
+    actionRoute(
+        "cancel",
+        creators,
+        (tx, id) =>
+            tx.$queryRaw`CALL im101_private.cancel_reservation(${id}::integer, NULL::integer)`,
+    );
     return router;
 }
 module.exports = { createReservationWrites };

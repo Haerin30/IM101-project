@@ -68,6 +68,19 @@ status to the real Rejected lookup ID, and leaves approvedBy NULL. AuditLog reco
 the rejecting actor independently. Duplicate and competing terminal transitions
 return conflicts. No free-text rejection reason, editing, or reopening is added.
 
+## Cancellation
+
+POST /api/reservations/:id/cancel accepts no body/query fields. All approved roles
+may cancel their own Pending or Approved reservation only before its start, checked
+using PostgreSQL clock_timestamp after locks. PROVISIONAL: a current administrator
+may also cancel another user's unstarted reservation. Other users' IDs receive the
+same 404 as nonexistent IDs, with ownership checked in the procedure lookup itself.
+The actual cancel_reservation procedure sets the real Cancelled ID and preserves
+approvedBy, including the original approver on an Approved booking. AuditLog records
+the cancelling actor. Rejected/Cancelled are terminal; no hard-delete, editing,
+rescheduling, reopening or equipment allocation endpoint exists. An unknown commit
+outcome never triggers cleanup or retry.
+
 ## Audit and role prerequisites
 
 The additive audit migration requires operator-provisioned NOLOGIN, NOSUPERUSER,

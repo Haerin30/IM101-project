@@ -39,6 +39,7 @@ test("reservation transition HTTP security with transaction-only mocked procedur
                 [
                     "CALL im101_private.approve_reservation(?::integer, NULL::integer)",
                     "CALL im101_private.reject_reservation(?::integer, NULL::integer)",
+                    "CALL im101_private.cancel_reservation(?::integer, NULL::integer)",
                 ].includes(sql),
             );
             assert.deepEqual(values, [707]);
@@ -47,18 +48,25 @@ test("reservation transition HTTP security with transaction-only mocked procedur
         },
         reservation: {
             async findFirst(query) {
-                assert.deepEqual(query.where, { reservationId: 707 });
+                assert.deepEqual(query.where, {
+                    reservationId: 707,
+                    ...(user.role.roleName === roles[0]
+                        ? {}
+                        : { requestedBy: 37 }),
+                });
                 assert.equal(Object.keys(query.select).length, 9);
                 return {
                     reservationId: 707,
                     facilityId: 71,
-                    requestedBy: 88,
+                    requestedBy: user.role.roleName === roles[0] ? 88 : 37,
                     approvedBy: calls.at(-1).sql.includes("reject_reservation")
                         ? null
                         : 37,
-                    statusId: calls.at(-1).sql.includes("reject_reservation")
-                        ? 41
-                        : 29,
+                    statusId: calls.at(-1).sql.includes("cancel_reservation")
+                        ? 53
+                        : calls.at(-1).sql.includes("reject_reservation")
+                          ? 41
+                          : 29,
                     purpose: "Fixture",
                     startDatetime: new Date("2027-01-15T00:00:00Z"),
                     endDatetime: new Date("2027-01-15T01:00:00Z"),
@@ -141,6 +149,31 @@ test("reservation transition HTTP security with transaction-only mocked procedur
                 assert.equal((await request("707/reject")).status, 403);
                 assert.deepEqual(calls, []);
             }
+        },
+    );
+    await t.test(
+        "all approved roles can request cancellation with scoped response reads",
+        async () => {
+            for (const role of roles) {
+                reset();
+                user.role.roleName = role;
+                const response = await request("707/cancel");
+                assert.equal(response.status, 200);
+                assert.equal(response.body.reservation.statusId, 53);
+                assert.equal(response.body.reservation.approvedBy, 37);
+            }
+            reset();
+            user.role.roleName = "Unknown";
+            assert.equal((await request("707/cancel")).status, 403);
+            assert.deepEqual(calls, []);
+            reset();
+            user.role.roleName = roles[1];
+            failure = {
+                code: "P2010",
+                meta: { code: "R4041" },
+                message: "PRIVATE-fixture",
+            };
+            assert.equal((await request("707/cancel")).status, 404);
         },
     );
     await t.test(

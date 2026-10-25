@@ -67,7 +67,7 @@ async function run({
             assert.equal(audit.new_value.status_id, 29);
         },
     );
-    async function race(first, second) {
+    async function race(first, second, actors = [101, 102]) {
         const a = await runtimePool.connect(),
             b = await runtimePool.connect();
         let bPending;
@@ -82,8 +82,12 @@ async function run({
                 b.query("BEGIN ISOLATION LEVEL SERIALIZABLE"),
             ]);
             await Promise.all([
-                a.query("SELECT set_config('im101.actor_id','101',true)"),
-                b.query("SELECT set_config('im101.actor_id','102',true)"),
+                a.query("SELECT set_config('im101.actor_id',$1,true)", [
+                    String(actors[0]),
+                ]),
+                b.query("SELECT set_config('im101.actor_id',$1,true)", [
+                    String(actors[1]),
+                ]),
             ]);
             await first(a);
             let settled = false;
@@ -214,7 +218,7 @@ async function run({
             }
         },
     );
-    await require("./rejections.pg").run({
+    const { reject } = await require("./rejections.pg").run({
         pool,
         gateway,
         create,
@@ -224,6 +228,19 @@ async function run({
         row,
         start,
         end,
+    });
+    await require("./cancellations.pg").run({
+        pool,
+        gateway,
+        create,
+        check,
+        race,
+        approve,
+        reject,
+        row,
+        start,
+        end,
+        transaction,
     });
     return { race, approve, row };
 }

@@ -59,6 +59,15 @@ retried. Serializable isolation can conservatively reject otherwise nonconflicti
 operations too. A 409 requires reloading; it is not permission to blindly retry a
 write. Malformed JSON parser errors also receive Cache-Control: no-store.
 
+## Rejection
+
+POST /api/reservations/:id/reject uses current administrator RBAC and the actual
+reject_reservation procedure. Only another user's Pending request may be rejected.
+The procedure locks the same actor/status/facility/reservation sequence, changes
+status to the real Rejected lookup ID, and leaves approvedBy NULL. AuditLog records
+the rejecting actor independently. Duplicate and competing terminal transitions
+return conflicts. No free-text rejection reason, editing, or reopening is added.
+
 ## Audit and role prerequisites
 
 The additive audit migration requires operator-provisioned NOLOGIN, NOSUPERUSER,

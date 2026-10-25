@@ -38,6 +38,7 @@ test("reservation transition HTTP security with transaction-only mocked procedur
             assert.ok(
                 [
                     "CALL im101_private.approve_reservation(?::integer, NULL::integer)",
+                    "CALL im101_private.reject_reservation(?::integer, NULL::integer)",
                 ].includes(sql),
             );
             assert.deepEqual(values, [707]);
@@ -52,8 +53,12 @@ test("reservation transition HTTP security with transaction-only mocked procedur
                     reservationId: 707,
                     facilityId: 71,
                     requestedBy: 88,
-                    approvedBy: 37,
-                    statusId: 29,
+                    approvedBy: calls.at(-1).sql.includes("reject_reservation")
+                        ? null
+                        : 37,
+                    statusId: calls.at(-1).sql.includes("reject_reservation")
+                        ? 41
+                        : 29,
                     purpose: "Fixture",
                     startDatetime: new Date("2027-01-15T00:00:00Z"),
                     endDatetime: new Date("2027-01-15T01:00:00Z"),
@@ -120,6 +125,22 @@ test("reservation transition HTTP security with transaction-only mocked procedur
                 !Object.hasOwn(response.body.reservation, "passwordHash"),
             );
             assert.equal(calls.length, 3);
+        },
+    );
+    await t.test(
+        "administrator rejection preserves a null approver in the projected result",
+        async () => {
+            reset();
+            const result = await request("707/reject");
+            assert.equal(result.status, 200);
+            assert.equal(result.body.reservation.statusId, 41);
+            assert.equal(result.body.reservation.approvedBy, null);
+            for (const role of roles.slice(1)) {
+                reset();
+                user.role.roleName = role;
+                assert.equal((await request("707/reject")).status, 403);
+                assert.deepEqual(calls, []);
+            }
         },
     );
     await t.test(

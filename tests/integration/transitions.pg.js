@@ -214,6 +214,17 @@ async function run({
             }
         },
     );
+    await require("./rejections.pg").run({
+        pool,
+        gateway,
+        create,
+        check,
+        race,
+        approve,
+        row,
+        start,
+        end,
+    });
     return { race, approve, row };
 }
 module.exports = { run };

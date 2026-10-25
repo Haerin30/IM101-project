@@ -69,12 +69,10 @@ function createReservationWrites({
                         Array.isArray(req.body) ||
                         Object.keys(req.body).length))
             )
-                return res
-                    .status(400)
-                    .json({
-                        success: false,
-                        message: "Invalid reservation transition input.",
-                    });
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid reservation transition input.",
+                });
             try {
                 const reservation = await run(req.user, async (tx) => {
                     const result = await call(tx, id);
@@ -109,6 +107,12 @@ function createReservationWrites({
         reviewers,
         (tx, id) =>
             tx.$queryRaw`CALL im101_private.approve_reservation(${id}::integer, NULL::integer)`,
+    );
+    actionRoute(
+        "reject",
+        reviewers,
+        (tx, id) =>
+            tx.$queryRaw`CALL im101_private.reject_reservation(${id}::integer, NULL::integer)`,
     );
     return router;
 }

@@ -249,6 +249,15 @@ Mock-only regression tests cover blocked and allowed floor-count changes, rollba
 
 This is an application safeguard for these cooperating routes, not a new database constraint. Every future writer of building floor counts or facility building/floor values must use the same validation and Serializable protocol. Direct SQL, dashboard edits, scripts, or other writers that bypass it can still introduce inconsistent floors, and pre-existing inconsistencies are not automatically repaired. The approved foreign keys enforce references but do not compare floor numbers to parent floor counts. Universal enforcement for arbitrary database writers would require additional database-side enforcement, which is outside this schema-preserving task.
 
+## Lookup preparation and controlled live CRUD (Phase 7 Task 4)
+
+See the [operator runbook](docs/lookup-and-live-crud.md) for suggested lookup values,
+offline mock tests, project/TLS guards, separate explicit approvals, private
+receipts and the disposable Buildings/Facilities/Equipment test sequence.
+`npm run provision:lookups` is an offline preview. Live lookup writes and live
+CRUD verification are separate manual operator actions; quality checks never
+launch them. The approved DBML, Prisma schema and migrations are unchanged.
+
 ## Equipment API (Phase 7)
 
 Equipment uses the approved fields only: `equipmentId`, `categoryId`, `homeFacilityId`, `equipmentName`, `serialNumber`, `totalQuantity`, `availableQuantity`, `conditionStatus`, and `createdAt`. Each record requires an existing EquipmentCategory and can optionally refer to a home Facility. Neither lookup records nor facilities are created automatically; an empty category lookup prevents creation with a safe 400 response.

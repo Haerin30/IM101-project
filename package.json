@@ -8,6 +8,8 @@
         "start": "node src/server.js",
         "db:check": "node scripts/db-check.js",
         "provision:initial": "node scripts/provision-initial.js",
+        "provision:lookups": "node scripts/provision-lookups.js",
+        "verify:live-crud": "pwsh -NoLogo -NoProfile -File scripts/verify-live-crud.ps1",
         "verify:admin": "pwsh -NoLogo -NoProfile -File scripts/verify-admin-login.ps1",
         "reset:admin-password": "pwsh -NoLogo -NoProfile -File scripts/reset-admin-password.ps1",
         "prisma:generate": "prisma generate --config prisma7.config.ts",

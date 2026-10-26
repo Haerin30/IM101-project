@@ -66,7 +66,12 @@ function setup(role = roles[2], id = 301) {
             };
         else if (path === "/reservation-statuses")
             result = {
-                reservationStatuses: [{ statusId: 17, statusName: "Pending" }],
+                reservationStatuses: [
+                    { statusId: 17, statusName: "Pending" },
+                    { statusId: 29, statusName: "Approved" },
+                    { statusId: 41, statusName: "Rejected" },
+                    { statusId: 53, statusName: "Cancelled" },
+                ],
             };
         else if (path === "/facilities" && denyFacilities)
             return {
@@ -121,6 +126,28 @@ function setup(role = roles[2], id = 301) {
             );
             record.loanStatus = "Returned";
             result = { loan: record };
+        } else if (
+            options.method === "POST" &&
+            /^\/reservations\/\d+\/(approve|reject|cancel)$/.test(path)
+        ) {
+            const [, , id, action] = path.split("/");
+            const record = rows.reservations.find(
+                (row) => row.reservationId === Number(id),
+            );
+            record.statusId = { approve: 29, reject: 41, cancel: 53 }[action];
+            result = { reservation: record };
+        } else if (
+            options.method === "POST" &&
+            /^\/maintenance\/\d+\/(assign|progress)$/.test(path)
+        ) {
+            const [, , id, action] = path.split("/");
+            const record = rows.maintenanceRequests.find(
+                (row) => row.requestId === Number(id),
+            );
+            const input = JSON.parse(options.body);
+            if (action === "assign") record.assignedStaffId = input.staffId;
+            else record.status = input.status;
+            result = { maintenanceRequest: record };
         } else if (path === "/facility-types")
             result = { facilityTypes: rows.facilityTypes };
         else if (path === "/equipment-categories")
@@ -461,3 +488,148 @@ test.each(["missing-workspace", "__proto__", "constructor"])(
         expect(screen.queryByRole("dialog")).toBeNull();
     },
 );
+
+test("staff navigation and maintenance claim/progress use fixed endpoints and actor-safe bodies", async () => {
+    const fixture = setup(roles[1], 201);
+    fixture.rows.maintenanceRequests.push({
+        requestId: 65,
+        facilityId: 30,
+        equipmentId: null,
+        reportedBy: 201,
+        assignedStaffId: null,
+        description: "Synthetic local staff report",
+        priority: "Normal",
+        status: "Open",
+    });
+    fixture.rows.assignments.push({
+        assignmentId: 9,
+        facilityId: 30,
+        staffId: 201,
+        assignedRole: "Custodian",
+        shift: "Day",
+        assignedDate: "2026-01-01T00:00:00.000Z",
+        unassignedDate: null,
+    });
+    await login();
+    await navigate("Staff assignments");
+    await screen.findByText("Custodian");
+    expect(
+        screen.queryByRole("button", { name: /Create assignment/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "End" })).toBeNull();
+    await navigate("Maintenance");
+    fireEvent.click(await screen.findByRole("button", { name: "Claim" }));
+    fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+            name: "Confirm claim maintenance",
+        }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+        JSON.parse(
+            fixture.calls.find(
+                (call) => call.url === "/api/maintenance/65/assign",
+            ).options.body,
+        ),
+    ).toEqual({ staffId: 201 });
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Maintenance action"), {
+        target: { value: "Synthetic inspection" },
+    });
+    fireEvent.click(
+        within(dialog).getByRole("button", { name: "Confirm start work" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+        JSON.parse(
+            fixture.calls.find(
+                (call) => call.url === "/api/maintenance/65/progress",
+            ).options.body,
+        ),
+    ).toEqual({ status: "In Progress", actionTaken: "Synthetic inspection" });
+    await screen.findByRole("button", { name: "Resolve" });
+});
+
+test.each(["approve", "reject"])(
+    "administrator %s requires confirmation and hides self-review",
+    async (action) => {
+        const fixture = setup(roles[0], 101);
+        for (const [id, requestedBy] of [
+            [70, 301],
+            [71, 101],
+        ])
+            fixture.rows.reservations.push({
+                reservationId: id,
+                facilityId: 30,
+                requestedBy,
+                approvedBy: null,
+                statusId: 17,
+                purpose: "Synthetic request " + id,
+                startDatetime: new Date(Date.now() + 86400000).toISOString(),
+                endDatetime: new Date(Date.now() + 90000000).toISOString(),
+                createdAt: new Date().toISOString(),
+            });
+        await login();
+        await navigate("Reservations");
+        const caption = action === "approve" ? "Approve" : "Reject";
+        const button = await screen.findByRole("button", { name: caption });
+        expect(screen.getAllByRole("button", { name: caption })).toHaveLength(
+            1,
+        );
+        expect(
+            fixture.calls.some((call) => call.url.endsWith("/" + action)),
+        ).toBe(false);
+        fireEvent.click(button);
+        const dialog = screen.getByRole("dialog");
+        expect(within(dialog).getByRole("heading").textContent).toContain(
+            "#70",
+        );
+        fireEvent.click(
+            within(dialog).getByRole("button", { name: "Confirm " + action }),
+        );
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        const call = fixture.calls.find(
+            (call) => call.url === "/api/reservations/70/" + action,
+        );
+        expect(call.options.method).toBe("POST");
+        expect(JSON.parse(call.options.body)).toEqual({});
+    },
+);
+
+test("representative cancellation preserves actor controls and direct assignment navigation is denied", async () => {
+    const fixture = setup();
+    fixture.rows.reservations.push({
+        reservationId: 80,
+        facilityId: 30,
+        requestedBy: 301,
+        statusId: 17,
+        purpose: "Synthetic own request",
+        startDatetime: new Date(Date.now() + 86400000).toISOString(),
+        endDatetime: new Date(Date.now() + 90000000).toISOString(),
+    });
+    await login();
+    await navigate("Reservations");
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+            name: "Confirm cancel reservation",
+        }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+        JSON.parse(
+            fixture.calls.find(
+                (call) => call.url === "/api/reservations/80/cancel",
+            ).options.body,
+        ),
+    ).toEqual({});
+    window.location.hash = "#/assignments";
+    await act(async () =>
+        window.dispatchEvent(new HashChangeEvent("hashchange")),
+    );
+    await screen.findByRole("heading", { name: "Access restricted" });
+    expect(
+        fixture.calls.some((call) => call.url.startsWith("/api/assignments")),
+    ).toBe(false);
+});

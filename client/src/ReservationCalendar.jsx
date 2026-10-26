@@ -35,6 +35,12 @@ export default function ReservationCalendar({
     onSelect,
     onRefreshCatalogs,
 }) {
+    const [compact, setCompact] = useState(() => window.innerWidth <= 700);
+    useEffect(() => {
+        const resize = () => setCompact(window.innerWidth <= 700);
+        window.addEventListener("resize", resize);
+        return () => window.removeEventListener("resize", resize);
+    }, []);
     const [month, setMonth] = useState(
         () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     );
@@ -214,84 +220,169 @@ export default function ReservationCalendar({
                             No approved reservations in the loaded history.
                         </p>
                     )}
-                    <div className="calendar-scroll">
-                        <div className="calendar-grid">
-                            {[
-                                "Sun",
-                                "Mon",
-                                "Tue",
-                                "Wed",
-                                "Thu",
-                                "Fri",
-                                "Sat",
-                            ].map((day) => (
-                                <div className="calendar-weekday" key={day}>
-                                    {day}
-                                </div>
-                            ))}
-                            {monthDays(month).map((day) => {
-                                const end = new Date(
-                                    day.getFullYear(),
-                                    day.getMonth(),
-                                    day.getDate() + 1,
-                                );
-                                const events = approved.filter(
-                                    (row) =>
-                                        new Date(row.startDatetime) < end &&
-                                        new Date(row.endDatetime) > day,
-                                );
-                                return (
-                                    <section
-                                        className={`calendar-day ${day.getMonth() === month.getMonth() ? "" : "outside-month"}`}
-                                        key={day.toISOString()}
-                                        aria-label={formatDate(
-                                            `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
-                                            true,
-                                        )}
-                                    >
-                                        <span className="calendar-day-number">
-                                            {day.getDate()}
-                                        </span>
-                                        {events.map((row) => (
-                                            <button
-                                                type="button"
-                                                className="calendar-event"
-                                                key={row.reservationId}
-                                                onClick={() =>
-                                                    onSelect({
-                                                        ...row,
-                                                        statusName: "Approved",
-                                                    })
-                                                }
-                                            >
-                                                <strong>
-                                                    {purposePreview(
-                                                        row.purpose,
-                                                    )}
-                                                </strong>
-                                                <span>
-                                                    {recordName(
-                                                        row.facilityId,
-                                                        "facility",
-                                                        names,
-                                                    )}
-                                                </span>
-                                                <span>
-                                                    {formatDate(
-                                                        row.startDatetime,
-                                                    )}{" "}
-                                                    –{" "}
-                                                    {formatDate(
-                                                        row.endDatetime,
-                                                    )}
-                                                </span>
-                                            </button>
-                                        ))}
-                                    </section>
-                                );
-                            })}
+                    {compact ? (
+                        <div className="agenda-list">
+                            {!approved.some(
+                                (row) =>
+                                    new Date(row.startDatetime) <
+                                        new Date(
+                                            month.getFullYear(),
+                                            month.getMonth() + 1,
+                                            1,
+                                        ) && new Date(row.endDatetime) > month,
+                            ) && (
+                                <p className="calendar-empty">
+                                    No approved reservations this month.
+                                </p>
+                            )}
+                            {monthDays(month)
+                                .filter(
+                                    (day) =>
+                                        day.getMonth() === month.getMonth(),
+                                )
+                                .map((day) => {
+                                    const end = new Date(
+                                            day.getFullYear(),
+                                            day.getMonth(),
+                                            day.getDate() + 1,
+                                        ),
+                                        events = approved.filter(
+                                            (row) =>
+                                                new Date(row.startDatetime) <
+                                                    end &&
+                                                new Date(row.endDatetime) > day,
+                                        );
+                                    return events.length ? (
+                                        <section
+                                            className="agenda-day"
+                                            key={day.toISOString()}
+                                        >
+                                            <h3>
+                                                {formatDate(
+                                                    `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+                                                    true,
+                                                )}
+                                            </h3>
+                                            {events.map((row) => (
+                                                <button
+                                                    className="calendar-event"
+                                                    key={row.reservationId}
+                                                    onClick={() =>
+                                                        onSelect({
+                                                            ...row,
+                                                            statusName:
+                                                                "Approved",
+                                                        })
+                                                    }
+                                                >
+                                                    <strong>
+                                                        {purposePreview(
+                                                            row.purpose,
+                                                        )}
+                                                    </strong>
+                                                    <span>
+                                                        {recordName(
+                                                            row.facilityId,
+                                                            "facility",
+                                                            names,
+                                                        )}
+                                                    </span>
+                                                    <span>
+                                                        {formatDate(
+                                                            row.startDatetime,
+                                                        )}{" "}
+                                                        –{" "}
+                                                        {formatDate(
+                                                            row.endDatetime,
+                                                        )}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </section>
+                                    ) : null;
+                                })}
                         </div>
-                    </div>
+                    ) : (
+                        <div className="calendar-scroll">
+                            <div className="calendar-grid">
+                                {[
+                                    "Sun",
+                                    "Mon",
+                                    "Tue",
+                                    "Wed",
+                                    "Thu",
+                                    "Fri",
+                                    "Sat",
+                                ].map((day) => (
+                                    <div className="calendar-weekday" key={day}>
+                                        {day}
+                                    </div>
+                                ))}
+                                {monthDays(month).map((day) => {
+                                    const end = new Date(
+                                        day.getFullYear(),
+                                        day.getMonth(),
+                                        day.getDate() + 1,
+                                    );
+                                    const events = approved.filter(
+                                        (row) =>
+                                            new Date(row.startDatetime) < end &&
+                                            new Date(row.endDatetime) > day,
+                                    );
+                                    return (
+                                        <section
+                                            className={`calendar-day ${day.getMonth() === month.getMonth() ? "" : "outside-month"}`}
+                                            key={day.toISOString()}
+                                            aria-label={formatDate(
+                                                `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+                                                true,
+                                            )}
+                                        >
+                                            <span className="calendar-day-number">
+                                                {day.getDate()}
+                                            </span>
+                                            {events.map((row) => (
+                                                <button
+                                                    type="button"
+                                                    className="calendar-event"
+                                                    key={row.reservationId}
+                                                    onClick={() =>
+                                                        onSelect({
+                                                            ...row,
+                                                            statusName:
+                                                                "Approved",
+                                                        })
+                                                    }
+                                                >
+                                                    <strong>
+                                                        {purposePreview(
+                                                            row.purpose,
+                                                        )}
+                                                    </strong>
+                                                    <span>
+                                                        {recordName(
+                                                            row.facilityId,
+                                                            "facility",
+                                                            names,
+                                                        )}
+                                                    </span>
+                                                    <span>
+                                                        {formatDate(
+                                                            row.startDatetime,
+                                                        )}{" "}
+                                                        –{" "}
+                                                        {formatDate(
+                                                            row.endDatetime,
+                                                        )}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </section>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </>
             )}
         </section>

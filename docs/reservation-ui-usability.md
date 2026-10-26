@@ -24,7 +24,8 @@ sentence/semicolon segment, and cap long previews at 64 Unicode code points plus
 ellipsis. View Details retains the complete original purpose with line breaks as
 plain text. Previewing never changes a stored purpose or a submitted payload.
 
-Reservations has List view and Approved calendar controls. The read-only month view
+Reservations has List view and Approved calendar controls, with Calendar also in the
+role-aware sidebar. Phones show a daily agenda for the selected month. The read-only month view
 shows only records whose status ID matches the actual Approved lookup value. There
 are no hardcoded status IDs, calendar mutations, drag/drop or new permissions.
 Clicking an event loads its existing authorized detail endpoint. Multi-day bookings

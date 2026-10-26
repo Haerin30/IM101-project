@@ -31,7 +31,14 @@ function setup(role = roles[2], id = 301) {
                 status: "Available",
             },
         ],
-        equipment: [],
+        equipment: [
+            {
+                equipmentId: 101,
+                equipmentName: "Fixture projector",
+                totalQuantity: 5,
+                availableQuantity: 5,
+            },
+        ],
         reservations: [],
         loans: [],
         maintenanceRequests: [],
@@ -53,7 +60,16 @@ function setup(role = roles[2], id = 301) {
         if (path === "/auth/login")
             result = { token: "synthetic-token", expiresIn: 900 };
         else if (path === "/auth/me") result = { user };
-        else if (path === "/overview")
+        else if (
+            options.method === "GET" &&
+            /^\/reservations\/\d+$/.test(path)
+        ) {
+            const reservation = rows.reservations.find(
+                (row) => row.reservationId === Number(path.split("/")[2]),
+            );
+            if (!reservation) throw Error("Unexpected fixture reservation");
+            result = { reservation };
+        } else if (path === "/overview")
             result = {
                 overview: {
                     buildings: rows.buildings.length,
@@ -246,7 +262,7 @@ test("reservation form submits exactly four normalized fields once and re-fetche
     await screen.findByRole("heading", { name: "Reservations" });
     fireEvent.click(screen.getByRole("button", { name: /New reservation/ }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Facility ID"), {
+    fireEvent.change(within(dialog).getByLabelText("Facility"), {
         target: { value: "30" },
     });
     fireEvent.change(within(dialog).getByLabelText("Purpose"), {
@@ -310,11 +326,11 @@ test("401 during navigation expires the session and hides previous records", asy
     expect(screen.getByRole("status").textContent).toMatch(/session expired/i);
     expect(screen.queryByRole("navigation")).toBeNull();
 });
-test("catalog datalist uses facility identity rather than its building ID", () => {
+test("facility selector shows names while retaining the facility identity internally", () => {
     render(
         <Editor
             title="Fixture editor"
-            fields={[]}
+            fields={[["facilityId", "Facility", "number", "facilities"]]}
             catalogs={{
                 facilities: [
                     {
@@ -328,7 +344,7 @@ test("catalog datalist uses facility identity rather than its building ID", () =
             onClose={() => {}}
         />,
     );
-    const option = document.querySelector("datalist option");
+    const option = screen.getByRole("option", { name: "Fixture hall" });
     expect(option.value).toBe("30");
 });
 test("uncertain mutations stay blocked and show reconciliation guidance without leaking diagnostics", async () => {
@@ -363,7 +379,7 @@ test("loan UI posts item quantities and due date without borrower overrides", as
     fireEvent.change(within(dialog).getByLabelText("Due date & time"), {
         target: { value: "2028-01-10T10:00" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Equipment ID"), {
+    fireEvent.change(within(dialog).getByLabelText("Equipment"), {
         target: { value: "101" },
     });
     fireEvent.change(within(dialog).getByLabelText("Quantity"), {
@@ -390,10 +406,14 @@ test("maintenance UI sends one target and preserves multiline description", asyn
         screen.getByRole("button", { name: /New maintenance request/ }),
     );
     const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Facility"), {
+        target: { value: "30" },
+    });
     fireEvent.change(within(dialog).getByLabelText("Target"), {
         target: { value: "equipmentId" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Target ID"), {
+    expect(within(dialog).getByLabelText("Equipment").value).toBe("");
+    fireEvent.change(within(dialog).getByLabelText("Equipment"), {
         target: { value: "101" },
     });
     fireEvent.change(within(dialog).getByLabelText("Description"), {
@@ -413,6 +433,91 @@ test("maintenance UI sends one target and preserves multiline description", asyn
         priority: "Normal",
     });
 });
+
+test("dashboard and reservation table show named facilities and previews with full purpose in Details", async () => {
+    const fixture = setup();
+    const purpose =
+        "Faculty forum\nDetailed seating and accessibility requirements.";
+    fixture.rows.reservations.push({
+        reservationId: 98,
+        facilityId: 30,
+        requestedBy: 301,
+        statusId: 17,
+        purpose,
+        startDatetime: new Date(2027, 0, 2, 9, 5).toISOString(),
+        endDatetime: new Date(2027, 0, 2, 10, 5).toISOString(),
+    });
+    await login();
+    await screen.findByText(/Fixture hall · 01\/02\/2027 09:05 AM/);
+    expect(screen.queryByText(purpose)).toBeNull();
+    expect(document.body.textContent).not.toContain("Facility #30");
+    await navigate("Reservations");
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("Fixture hall")).toBeTruthy();
+    expect(within(table).getByText("Faculty forum")).toBeTruthy();
+    expect(within(table).queryByText("30")).toBeNull();
+    fireEvent.click(
+        within(table).getByRole("button", { name: "View Details" }),
+    );
+    const details = await screen.findByRole("dialog");
+    expect(details.querySelector(".full-purpose").textContent).toBe(purpose);
+    expect(within(details).getByText("Fixture hall")).toBeTruthy();
+    expect(details.textContent).not.toContain("Facility ID");
+});
+
+test("reservation section switches to Approved-only calendar and opens scoped details", async () => {
+    const fixture = setup();
+    const now = new Date();
+    for (const [id, statusId, purpose] of [
+        [96, 29, "Approved workshop\nWorkshop full details"],
+        [97, 17, "Pending workshop"],
+    ])
+        fixture.rows.reservations.push({
+            reservationId: id,
+            facilityId: 30,
+            requestedBy: 301,
+            statusId,
+            purpose,
+            startDatetime: new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                15,
+                9,
+            ).toISOString(),
+            endDatetime: new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                15,
+                10,
+            ).toISOString(),
+        });
+    await login();
+    await navigate("Reservations");
+    fireEvent.click(
+        await screen.findByRole("button", { name: "Approved calendar" }),
+    );
+    const event = await screen.findByRole("button", {
+        name: /Approved workshop.*Fixture hall/,
+    });
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText("Pending workshop")).toBeNull();
+    fireEvent.click(event);
+    const details = await screen.findByRole("dialog");
+    expect(details.querySelector(".full-purpose").textContent).toBe(
+        "Approved workshop\nWorkshop full details",
+    );
+    expect(within(details).getByText("Approved")).toBeTruthy();
+    fireEvent.click(
+        within(details).getByRole("button", { name: "Close dialog" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+    await screen.findByRole("table");
+    expect(
+        fixture.calls
+            .filter((call) => call.url.startsWith("/api/reservations?"))
+            .every((call) => call.options.method === "GET"),
+    ).toBe(true);
+});
 test("administrator assignment form uses eligible staff ID and approved role/shift fields", async () => {
     const fixture = setup(roles[0], 101);
     await login();
@@ -420,7 +525,7 @@ test("administrator assignment form uses eligible staff ID and approved role/shi
     await screen.findByRole("heading", { name: "Staff assignments" });
     fireEvent.click(screen.getByRole("button", { name: /Create assignment/ }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Facility ID"), {
+    fireEvent.change(within(dialog).getByLabelText("Facility"), {
         target: { value: "30" },
     });
     fireEvent.change(within(dialog).getByLabelText("Staff user ID"), {

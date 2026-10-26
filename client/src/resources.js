@@ -43,12 +43,7 @@ export const resources = {
         fields: [
             ["equipmentName", "Equipment name", "text", 100],
             ["categoryId", "Category ID", "number", "categories"],
-            [
-                "homeFacilityId",
-                "Home facility ID",
-                "nullableNumber",
-                "facilities",
-            ],
+            ["homeFacilityId", "Home facility", "nullableNumber", "facilities"],
             ["totalQuantity", "Total quantity", "quantity"],
             ["availableQuantity", "Available quantity", "quantity"],
             ["serialNumber", "Serial number", "optional", 60],
@@ -71,7 +66,7 @@ export const resources = {
         id: "reservationId",
         description: "Request facility time and follow your booking history.",
         fields: [
-            ["facilityId", "Facility ID", "number", "facilities"],
+            ["facilityId", "Facility", "number", "facilities"],
             ["purpose", "Purpose", "textarea", 255],
             ["startDatetime", "Start date & time", "datetime"],
             ["endDatetime", "End date & time", "datetime"],
@@ -102,7 +97,7 @@ export const resources = {
         description: "Report issues and keep maintenance work moving.",
         fields: [
             ["targetKind", "Target", "select", ["facilityId", "equipmentId"]],
-            ["targetId", "Target ID", "number"],
+            ["targetId", "Facility", "number"],
             ["description", "Description", "textarea", 4000],
             ["priority", "Priority", "select", ["Normal", "Low", "High"]],
         ],
@@ -123,7 +118,7 @@ export const resources = {
         description:
             "Coordinate facility coverage while preserving assignment history.",
         fields: [
-            ["facilityId", "Facility ID", "number", "facilities"],
+            ["facilityId", "Facility", "number", "facilities"],
             ["staffId", "Staff user ID", "number", "staff"],
             [
                 "assignedRole",
@@ -159,8 +154,8 @@ export const labels = {
     availableQuantity: "Available",
     totalQuantity: "Total",
     conditionStatus: "Condition",
-    purpose: "Purpose",
-    facilityId: "Facility ID",
+    purpose: "Reservation",
+    facilityId: "Facility",
     statusName: "Status",
     startDatetime: "Starts",
     endDatetime: "Ends",
@@ -185,36 +180,10 @@ export const labels = {
     reportedAt: "Reported",
     resolvedAt: "Resolved",
     reportedBy: "Reporter ID",
-    equipmentId: "Equipment ID",
+    equipmentId: "Equipment",
     facilityTypeId: "Type ID",
     floorNumber: "Floor",
     serialNumber: "Serial number",
-    homeFacilityId: "Home facility ID",
+    homeFacilityId: "Home facility",
 };
-export function format(value, key) {
-    if (value === null || value === undefined || value === "") return "—";
-    if (["assignedDate", "unassignedDate"].includes(key))
-        return String(value).slice(0, 10);
-    if (
-        [
-            "startDatetime",
-            "endDatetime",
-            "dueDate",
-            "returnDate",
-            "createdAt",
-            "requestedAt",
-            "reportedAt",
-            "resolvedAt",
-            "loggedAt",
-        ].includes(key)
-    ) {
-        const date = new Date(value);
-        return Number.isFinite(date.getTime())
-            ? date.toLocaleString(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-              })
-            : "Unavailable";
-    }
-    return String(value);
-}
+export { formatValue as format } from "./presentation";

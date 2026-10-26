@@ -1208,3 +1208,103 @@ th {
         visibility: visible;
     }
 }
+/* Shared reservation presentation and a read-only, horizontally scrollable month. */
+.reservation-view-switch {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.reservation-view-switch [aria-pressed="true"] {
+    background: #145c43;
+    color: white;
+    border-color: #145c43;
+}
+.calendar-toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem;
+    flex-wrap: wrap;
+}
+.calendar-toolbar h2 {
+    margin: 0 0 0.5rem;
+}
+.calendar-toolbar p {
+    max-width: 42rem;
+    margin: 0;
+}
+.reservation-calendar > .alert,
+.reservation-calendar > p {
+    margin: 0 1.25rem 1rem;
+}
+.calendar-scroll {
+    overflow-x: auto;
+}
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    min-width: 800px;
+}
+.calendar-weekday {
+    padding: 0.75rem;
+    font-weight: 650;
+    background: #f3f7f5;
+    border-top: 1px solid #dfe8e3;
+}
+.calendar-day {
+    min-height: 125px;
+    padding: 0.5rem;
+    border-top: 1px solid #dfe8e3;
+    border-right: 1px solid #dfe8e3;
+    min-width: 0;
+}
+.calendar-day.outside-month {
+    background: #f6f8f7;
+}
+.calendar-day-number {
+    display: block;
+    font-weight: 600;
+    padding: 0.15rem 0.25rem 0.5rem;
+}
+.calendar-event {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    gap: 0.3rem;
+    padding: 0.55rem;
+    margin-bottom: 0.4rem;
+    width: 100%;
+    background: #e8f3ec;
+    border: 1px solid #b2d2bf;
+    color: #173e2c;
+    border-radius: 0.4rem;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+.calendar-event strong {
+    font-size: 0.85rem;
+}
+.calendar-event span {
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+.calendar-event:hover {
+    background: #d8ebdf;
+}
+.full-purpose {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.text-button {
+    background: none;
+    border: 0;
+    padding: 0.25rem 0;
+    color: #145c43;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.loan-equipment-choice {
+    flex: 1;
+    min-width: 0;
+}

@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { toInstant } from "./api";
 import { format, labels } from "./resources";
+import { displayValue, recordName } from "./presentation";
+import { useRecordNames } from "./names";
+import { useSession } from "./session";
 export function Icon({ name = "overview" }) {
     const paths = {
         overview: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
@@ -68,6 +71,21 @@ export function Modal({ title, children, onClose, busy = false }) {
             previous?.focus();
         };
     }, []);
+    useEffect(() => {
+        const dialog = ref.current,
+            active = document.activeElement;
+        if (
+            dialog &&
+            (active === dialog ||
+                !dialog.contains(active) ||
+                active?.matches(":disabled"))
+        ) {
+            const enabled = dialog.querySelector(
+                "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
+            );
+            (enabled || dialog).focus();
+        }
+    });
     function keys(event) {
         if (event.key === "Escape" && !busy) onClose();
         if (event.key === "Tab") {
@@ -76,7 +94,10 @@ export function Modal({ title, children, onClose, busy = false }) {
                     "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
                 ),
             ];
-            if (!controls.length) return;
+            if (!controls.length) {
+                event.preventDefault();
+                return;
+            }
             const first = controls[0],
                 last = controls.at(-1);
             if (event.shiftKey && document.activeElement === first) {
@@ -96,6 +117,7 @@ export function Modal({ title, children, onClose, busy = false }) {
                 aria-modal="true"
                 aria-labelledby={titleId}
                 ref={ref}
+                tabIndex={-1}
                 onKeyDown={keys}
             >
                 <div className="modal-heading">
@@ -125,7 +147,8 @@ function optionData(list, key) {
         categories: "categoryId",
         staff: "userId",
     };
-    return (list || []).map((row) => ({
+    if (!Object.hasOwn(ids, key)) return [];
+    return (Array.isArray(list) ? list : []).map((row) => ({
         id: row[ids[key]],
         label:
             row.buildingName ??
@@ -135,6 +158,48 @@ function optionData(list, key) {
             row.categoryName ??
             `${row.fname} ${row.lname}`,
     }));
+}
+function NamedSelect({ id, value, onChange, kind, catalogs, required = true }) {
+    const options = optionData(catalogs[kind], kind);
+    return (
+        <>
+            <select
+                id={id}
+                value={value ?? ""}
+                onChange={onChange}
+                required={required}
+            >
+                <option value="">
+                    {required
+                        ? `Choose ${kind === "facilities" ? "a facility" : "equipment"}`
+                        : "Unassigned"}
+                </option>
+                {value &&
+                    !options.some((option) => option.id === Number(value)) && (
+                        <option value={value} disabled>
+                            {kind === "facilities"
+                                ? "Facility unavailable"
+                                : "Equipment unavailable"}
+                        </option>
+                    )}
+                {options.map((option) => (
+                    <option key={option.id} value={option.id}>
+                        {option.label}
+                    </option>
+                ))}
+            </select>
+            {catalogs.hasMore?.[kind] && (
+                <button
+                    type="button"
+                    className="button subtle small"
+                    disabled={catalogs.loadingMore?.[kind]}
+                    onClick={() => catalogs.loadMore(kind)}
+                >
+                    Load more {kind}
+                </button>
+            )}
+        </>
+    );
 }
 export function Editor({
     title,
@@ -149,6 +214,12 @@ export function Editor({
     onClose,
 }) {
     const uid = useId();
+    const api = useSession()?.api;
+    const namedCatalogs = useRecordNames(
+        [{ ...initial, items: returnItems || initial.items }],
+        catalogs,
+        api,
+    );
     const [values, setValues] = useState(() =>
             Object.fromEntries(
                 fields.map(([name, , type, extra]) => [
@@ -275,8 +346,40 @@ export function Editor({
                                 }
                                 key={name}
                             >
-                                <label htmlFor={uid + name}>{label}</label>
-                                {type === "textarea" ? (
+                                <label htmlFor={uid + name}>
+                                    {name === "targetId"
+                                        ? values.targetKind === "equipmentId"
+                                            ? "Equipment"
+                                            : "Facility"
+                                        : label}
+                                </label>
+                                {[
+                                    "facilityId",
+                                    "homeFacilityId",
+                                    "equipmentId",
+                                    "targetId",
+                                ].includes(name) ? (
+                                    <NamedSelect
+                                        id={uid + name}
+                                        value={values[name]}
+                                        catalogs={namedCatalogs}
+                                        kind={
+                                            name === "equipmentId" ||
+                                            (name === "targetId" &&
+                                                values.targetKind ===
+                                                    "equipmentId")
+                                                ? "equipment"
+                                                : "facilities"
+                                        }
+                                        required={type !== "nullableNumber"}
+                                        onChange={(event) =>
+                                            setValues({
+                                                ...values,
+                                                [name]: event.target.value,
+                                            })
+                                        }
+                                    />
+                                ) : type === "textarea" ? (
                                     <textarea
                                         id={uid + name}
                                         rows="4"
@@ -297,6 +400,9 @@ export function Editor({
                                             setValues({
                                                 ...values,
                                                 [name]: event.target.value,
+                                                ...(name === "targetKind"
+                                                    ? { targetId: "" }
+                                                    : {}),
                                             })
                                         }
                                     >
@@ -352,28 +458,38 @@ export function Editor({
                             </div>
                         ))}
                     </div>
-                    {Object.entries(catalogs).map(([key, list]) => (
-                        <datalist id={uid + key} key={key}>
-                            {optionData(list, key).map((item) => (
-                                <option
-                                    key={item.id}
-                                    value={item.id}
-                                    label={item.label}
-                                />
-                            ))}
-                        </datalist>
-                    ))}
+                    {Object.entries(namedCatalogs)
+                        .filter(
+                            ([key, list]) =>
+                                Array.isArray(list) &&
+                                !["facilities", "equipment"].includes(key),
+                        )
+                        .map(([key, list]) => (
+                            <datalist id={uid + key} key={key}>
+                                {optionData(list, key).map((item) => (
+                                    <option
+                                        key={item.id}
+                                        value={item.id}
+                                        label={item.label}
+                                    />
+                                ))}
+                            </datalist>
+                        ))}
                     {loanItems && (
                         <fieldset className="loan-items">
                             <legend>Equipment items</legend>
                             {entries.map((item, index) => (
                                 <div className="item-row" key={index}>
-                                    <label>
-                                        Equipment ID
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            list={uid + "equipment"}
+                                    <div className="loan-equipment-choice">
+                                        <label
+                                            htmlFor={uid + "equipment-" + index}
+                                        >
+                                            Equipment
+                                        </label>
+                                        <NamedSelect
+                                            id={uid + "equipment-" + index}
+                                            kind="equipment"
+                                            catalogs={namedCatalogs}
                                             value={item.equipmentId}
                                             onChange={(event) =>
                                                 setEntries(
@@ -392,7 +508,7 @@ export function Editor({
                                             }
                                             required
                                         />
-                                    </label>
+                                    </div>
                                     <label>
                                         Quantity
                                         <input
@@ -452,8 +568,12 @@ export function Editor({
                         <div className="return-list">
                             {returnItems.map((item) => (
                                 <label key={item.equipmentId}>
-                                    Equipment #{item.equipmentId} · quantity{" "}
-                                    {item.quantity}
+                                    {recordName(
+                                        item.equipmentId,
+                                        "equipment",
+                                        namedCatalogs,
+                                    )}{" "}
+                                    · quantity {item.quantity}
                                     <select
                                         value={conditions[item.equipmentId]}
                                         onChange={(event) =>
@@ -493,19 +613,46 @@ export function Editor({
     );
 }
 export function RecordDetails({ row, onClose, catalogs }) {
+    const namedCatalogs = useRecordNames([row], catalogs, useSession()?.api);
     return (
         <Modal title="Record details" onClose={onClose}>
             <div className="modal-body">
                 <dl className="detail-grid">
                     {Object.keys(labels)
-                        .filter((key) => Object.hasOwn(row, key))
+                        .filter(
+                            (key) =>
+                                Object.hasOwn(row, key) &&
+                                !(
+                                    key === "facilityId" &&
+                                    Object.hasOwn(row, "facilityName")
+                                ) &&
+                                !(
+                                    key === "equipmentId" &&
+                                    Object.hasOwn(row, "equipmentName")
+                                ),
+                        )
                         .map((key) => (
                             <div key={key}>
-                                <dt>{labels[key]}</dt>
-                                <dd>
+                                <dt>
+                                    {key === "purpose"
+                                        ? "Full purpose"
+                                        : labels[key]}
+                                </dt>
+                                <dd
+                                    className={
+                                        key === "purpose"
+                                            ? "full-purpose"
+                                            : undefined
+                                    }
+                                >
                                     {key === "statusName"
                                         ? row[key]
-                                        : format(row[key], key)}
+                                        : displayValue(
+                                              row,
+                                              key,
+                                              namedCatalogs,
+                                              true,
+                                          )}
                                 </dd>
                             </div>
                         ))}
@@ -515,10 +662,11 @@ export function RecordDetails({ row, onClose, catalogs }) {
                         <h3>Loan items</h3>
                         {row.items.map((item) => (
                             <p key={item.equipmentId}>
-                                {catalogs.equipment?.find(
-                                    (e) => e.equipmentId === item.equipmentId,
-                                )?.equipmentName ||
-                                    `Equipment #${item.equipmentId}`}{" "}
+                                {recordName(
+                                    item.equipmentId,
+                                    "equipment",
+                                    namedCatalogs,
+                                )}{" "}
                                 · quantity {item.quantity} · out:{" "}
                                 {item.conditionOut || "—"} · in:{" "}
                                 {item.conditionIn || "—"}

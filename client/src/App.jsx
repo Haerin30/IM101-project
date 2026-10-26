@@ -1,7 +1,16 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, {
+    useEffect,
+    useState,
+    useRef,
+    useMemo,
+    useCallback,
+} from "react";
 import { useSession, roles } from "./session";
 import { resources, labels, format } from "./resources";
 import { Alert, Badge, Editor, Icon, RecordDetails } from "./components";
+import { displayValue, purposePreview, recordName } from "./presentation";
+import { useRecordNames } from "./names";
+import ReservationCalendar from "./ReservationCalendar";
 const isAdmin = (user) => user.role.roleName === roles[0],
     isStaff = (user) => user.role.roleName === roles[1];
 function useRoute() {
@@ -129,12 +138,21 @@ export function Login() {
 }
 function useCatalogs(user, api, revision) {
     const [catalogs, setCatalogs] = useState({});
+    const [pages, setPages] = useState({}),
+        [loadingMore, setLoadingMore] = useState({});
+    const controllerRef = useRef(null),
+        pending = useRef(new Set());
     useEffect(() => {
         if (!user) {
             setCatalogs({});
             return;
         }
         const controller = new AbortController();
+        controllerRef.current = controller;
+        pending.current.clear();
+        setPages({});
+        setLoadingMore({});
+        setCatalogs({});
         const endpoints = [
             ["buildings", "/buildings?limit=100", "buildings"],
             ["facilities", "/facilities?limit=100", "facilities"],
@@ -149,16 +167,35 @@ function useCatalogs(user, api, revision) {
             ...(isAdmin(user) ? [["staff", "/staff?limit=100", "staff"]] : []),
         ];
         Promise.all(
-            endpoints.map(async ([key, path, resultKey]) => [
-                key,
-                (await api.request(path, { signal: controller.signal }))[
-                    resultKey
-                ],
-            ]),
+            endpoints.map(async ([key, path, resultKey]) => {
+                const data = await api.request(path, {
+                    signal: controller.signal,
+                });
+                return {
+                    key,
+                    rows: data[resultKey],
+                    more: Boolean(data.pagination?.hasMore),
+                    resultKey,
+                    path: path.split("?")[0],
+                };
+            }),
         )
             .then((entries) => {
-                if (!controller.signal.aborted)
-                    setCatalogs(Object.fromEntries(entries));
+                if (!controller.signal.aborted) {
+                    setCatalogs(
+                        Object.fromEntries(
+                            entries.map((entry) => [entry.key, entry.rows]),
+                        ),
+                    );
+                    setPages(
+                        Object.fromEntries(
+                            entries.map((entry) => [
+                                entry.key,
+                                { ...entry, page: 1 },
+                            ]),
+                        ),
+                    );
+                }
             })
             .catch(() => {
                 if (!controller.signal.aborted)
@@ -166,13 +203,75 @@ function useCatalogs(user, api, revision) {
             });
         return () => controller.abort();
     }, [user, api, revision]);
-    return catalogs;
+    const loadMore = useCallback(
+        async (key) => {
+            const entry = pages[key],
+                controller = controllerRef.current;
+            if (
+                !entry?.more ||
+                pending.current.has(key) ||
+                !controller ||
+                controller.signal.aborted
+            )
+                return;
+            pending.current.add(key);
+            setLoadingMore((previous) => ({ ...previous, [key]: true }));
+            try {
+                const data = await api.request(
+                    `${entry.path}?limit=100&page=${entry.page + 1}`,
+                    { signal: controller.signal },
+                );
+                if (!controller.signal.aborted) {
+                    setCatalogs((previous) => ({
+                        ...previous,
+                        [key]: [...previous[key], ...data[entry.resultKey]],
+                    }));
+                    setPages((previous) => ({
+                        ...previous,
+                        [key]: {
+                            ...entry,
+                            page: entry.page + 1,
+                            more: data.pagination.hasMore,
+                        },
+                    }));
+                }
+            } catch {
+                if (!controller.signal.aborted)
+                    setCatalogs((previous) => ({
+                        ...previous,
+                        unavailable: true,
+                    }));
+            } finally {
+                if (!controller.signal.aborted) {
+                    pending.current.delete(key);
+                    setLoadingMore((previous) => ({
+                        ...previous,
+                        [key]: false,
+                    }));
+                }
+            }
+        },
+        [api, pages],
+    );
+    return useMemo(
+        () => ({
+            ...catalogs,
+            loadMore,
+            loadingMore,
+            hasMore: Object.fromEntries(
+                Object.entries(pages).map(([key, value]) => [key, value.more]),
+            ),
+        }),
+        [catalogs, loadMore, loadingMore, pages],
+    );
 }
-function Dashboard() {
+function Dashboard({ catalogs }) {
     const { api, user } = useSession();
     const [data, setData] = useState(null),
         [error, setError] = useState(""),
         [revision, setRevision] = useState(0);
+    const [details, setDetails] = useState(null);
+    const names = useRecordNames(data?.reservations || [], catalogs, api);
     useEffect(() => {
         const controller = new AbortController();
         setError("");
@@ -259,14 +358,31 @@ function Dashboard() {
                                                 <Icon name="reservations" />
                                             </span>
                                             <div>
-                                                <strong>{row.purpose}</strong>
+                                                <strong>
+                                                    {purposePreview(
+                                                        row.purpose,
+                                                    )}
+                                                </strong>
                                                 <p>
-                                                    Facility #{row.facilityId} ·{" "}
+                                                    {recordName(
+                                                        row.facilityId,
+                                                        "facility",
+                                                        names,
+                                                    )}{" "}
+                                                    ·{" "}
                                                     {format(
                                                         row.startDatetime,
                                                         "startDatetime",
                                                     )}
                                                 </p>
+                                                <button
+                                                    className="text-button"
+                                                    onClick={() =>
+                                                        setDetails(row)
+                                                    }
+                                                >
+                                                    View Details
+                                                </button>
                                             </div>
                                         </div>
                                     ))
@@ -330,6 +446,13 @@ function Dashboard() {
                     </>
                 )
             )}
+            {details && (
+                <RecordDetails
+                    row={details}
+                    catalogs={names}
+                    onClose={() => setDetails(null)}
+                />
+            )}
         </>
     );
 }
@@ -358,6 +481,8 @@ function ResourcePage({ name, catalogs, onChange }) {
         [modal, setModal] = useState(null),
         [details, setDetails] = useState(null),
         [toast, setToast] = useState("");
+    const [reservationView, setReservationView] = useState("list");
+    const names = useRecordNames(rows, catalogs, api);
     const refresh = () => setRevision((value) => value + 1);
     useEffect(() => {
         const controller = new AbortController();
@@ -538,7 +663,7 @@ function ResourcePage({ name, catalogs, onChange }) {
             delete: "Delete",
         };
         setModal({
-            title: `${captions[type]} · ${resource.singular} #${id}`,
+            title: `${captions[type]} · ${name === "facilities" ? row.facilityName : name === "equipment" ? row.equipmentName : `${resource.singular} #${id}`}`,
             fields,
             initial: row,
             returnItems: type === "return" ? row.items : null,
@@ -631,197 +756,252 @@ function ResourcePage({ name, catalogs, onChange }) {
                 )}
             </div>
             <Alert>{error}</Alert>
+            {name === "reservations" && (
+                <div
+                    className="reservation-view-switch"
+                    role="group"
+                    aria-label="Reservation view"
+                >
+                    <button
+                        className="button secondary"
+                        aria-pressed={reservationView === "list"}
+                        onClick={() => setReservationView("list")}
+                    >
+                        List view
+                    </button>
+                    <button
+                        className="button secondary"
+                        aria-pressed={reservationView === "calendar"}
+                        onClick={() => setReservationView("calendar")}
+                    >
+                        Approved calendar
+                    </button>
+                </div>
+            )}
             {toast && (
                 <div className="success-banner" role="status">
                     {toast}
                 </div>
             )}
-            <section className="panel table-panel">
-                <div className="table-toolbar">
-                    <div>
-                        <strong>
-                            {isAdmin(user)
-                                ? "Management"
-                                : name === "loans" && isStaff(user)
-                                  ? "Borrowing review"
-                                  : "Your workspace"}
-                        </strong>
-                        <span className="muted"> · page {page}</span>
-                    </div>
-                    <div className="toolbar-actions">
-                        {["loans", "maintenance", "assignments"].includes(
-                            name,
-                        ) && (
-                            <label className="filter-label">
-                                Filter
-                                <select
-                                    aria-label="Filter records"
-                                    value={filter}
-                                    onChange={(event) => {
-                                        setFilter(event.target.value);
-                                        setPage(1);
-                                    }}
-                                >
-                                    <option value="">All history</option>
-                                    {(name === "loans"
-                                        ? [
-                                              "Pending",
-                                              "Approved",
-                                              "Rejected",
-                                              "Returned",
-                                          ]
-                                        : name === "maintenance"
-                                          ? ["Open", "In Progress", "Resolved"]
-                                          : ["true", "false"]
-                                    ).map((value) => (
-                                        <option key={value} value={value}>
-                                            {value === "true"
-                                                ? "Active"
-                                                : value === "false"
-                                                  ? "Ended"
-                                                  : value}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        )}
-                        <button
-                            className="button secondary small"
-                            onClick={refresh}
-                            disabled={loading}
-                        >
-                            Refresh
-                        </button>
-                    </div>
-                </div>
-                {loading ? (
-                    <div className="loading-state" role="status">
-                        Loading {resource.title.toLowerCase()}…
-                    </div>
-                ) : error ? (
-                    <Empty
-                        title="Unable to load records"
-                        text="Use Refresh to try the read request again."
-                    />
-                ) : !rows.length ? (
-                    <Empty
-                        text={
-                            filter
-                                ? "No records match this filter."
-                                : "Your authorized records will appear here."
-                        }
-                    />
-                ) : (
-                    <div className="table-scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    {resource.columns.map((key) => (
-                                        <th key={key}>{labels[key] || key}</th>
-                                    ))}
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {enriched.map((row) => (
-                                    <tr key={row[resource.id]}>
-                                        {resource.columns.map((key) => (
-                                            <td key={key}>
-                                                {[
-                                                    "status",
-                                                    "statusName",
-                                                    "loanStatus",
-                                                    "conditionStatus",
-                                                    "priority",
-                                                ].includes(key) ? (
-                                                    <Badge value={row[key]} />
-                                                ) : (
-                                                    <span
-                                                        className="cell-text"
-                                                        title={format(
-                                                            row[key],
-                                                            key,
-                                                        )}
-                                                    >
-                                                        {format(row[key], key)}
-                                                    </span>
-                                                )}
-                                            </td>
+            {name === "reservations" && reservationView === "calendar" ? (
+                <ReservationCalendar
+                    api={api}
+                    catalogs={catalogs}
+                    onSelect={view}
+                    onRefreshCatalogs={onChange}
+                />
+            ) : (
+                <section className="panel table-panel">
+                    <div className="table-toolbar">
+                        <div>
+                            <strong>
+                                {isAdmin(user)
+                                    ? "Management"
+                                    : name === "loans" && isStaff(user)
+                                      ? "Borrowing review"
+                                      : "Your workspace"}
+                            </strong>
+                            <span className="muted"> · page {page}</span>
+                        </div>
+                        <div className="toolbar-actions">
+                            {["loans", "maintenance", "assignments"].includes(
+                                name,
+                            ) && (
+                                <label className="filter-label">
+                                    Filter
+                                    <select
+                                        aria-label="Filter records"
+                                        value={filter}
+                                        onChange={(event) => {
+                                            setFilter(event.target.value);
+                                            setPage(1);
+                                        }}
+                                    >
+                                        <option value="">All history</option>
+                                        {(name === "loans"
+                                            ? [
+                                                  "Pending",
+                                                  "Approved",
+                                                  "Rejected",
+                                                  "Returned",
+                                              ]
+                                            : name === "maintenance"
+                                              ? [
+                                                    "Open",
+                                                    "In Progress",
+                                                    "Resolved",
+                                                ]
+                                              : ["true", "false"]
+                                        ).map((value) => (
+                                            <option key={value} value={value}>
+                                                {value === "true"
+                                                    ? "Active"
+                                                    : value === "false"
+                                                      ? "Ended"
+                                                      : value}
+                                            </option>
                                         ))}
-                                        <td>
-                                            <div className="row-actions">
-                                                <button
-                                                    onClick={() => view(row)}
-                                                >
-                                                    Details
-                                                </button>
-                                                {actions(row).map(
-                                                    ([type, label]) => (
-                                                        <button
-                                                            key={type}
-                                                            className={
-                                                                [
-                                                                    "delete",
-                                                                    "reject",
-                                                                    "cancel",
-                                                                ].includes(type)
-                                                                    ? "danger-link"
-                                                                    : ""
-                                                            }
-                                                            onClick={() =>
-                                                                type === "edit"
-                                                                    ? edit(row)
-                                                                    : action(
-                                                                          row,
-                                                                          type,
-                                                                      )
-                                                            }
-                                                        >
-                                                            {label}
-                                                        </button>
-                                                    ),
-                                                )}
-                                            </div>
-                                        </td>
+                                    </select>
+                                </label>
+                            )}
+                            <button
+                                className="button secondary small"
+                                onClick={() => {
+                                    refresh();
+                                    onChange();
+                                }}
+                                disabled={loading}
+                            >
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    {loading ? (
+                        <div className="loading-state" role="status">
+                            Loading {resource.title.toLowerCase()}…
+                        </div>
+                    ) : error ? (
+                        <Empty
+                            title="Unable to load records"
+                            text="Use Refresh to try the read request again."
+                        />
+                    ) : !rows.length ? (
+                        <Empty
+                            text={
+                                filter
+                                    ? "No records match this filter."
+                                    : "Your authorized records will appear here."
+                            }
+                        />
+                    ) : (
+                        <div className="table-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        {resource.columns.map((key) => (
+                                            <th key={key}>
+                                                {labels[key] || key}
+                                            </th>
+                                        ))}
+                                        <th>Actions</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {enriched.map((row) => (
+                                        <tr key={row[resource.id]}>
+                                            {resource.columns.map((key) => (
+                                                <td key={key}>
+                                                    {[
+                                                        "status",
+                                                        "statusName",
+                                                        "loanStatus",
+                                                        "conditionStatus",
+                                                        "priority",
+                                                    ].includes(key) ? (
+                                                        <Badge
+                                                            value={row[key]}
+                                                        />
+                                                    ) : (
+                                                        <span
+                                                            className="cell-text"
+                                                            title={displayValue(
+                                                                row,
+                                                                key,
+                                                                names,
+                                                            )}
+                                                        >
+                                                            {displayValue(
+                                                                row,
+                                                                key,
+                                                                names,
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            ))}
+                                            <td>
+                                                <div className="row-actions">
+                                                    <button
+                                                        onClick={() =>
+                                                            view(row)
+                                                        }
+                                                    >
+                                                        View Details
+                                                    </button>
+                                                    {actions(row).map(
+                                                        ([type, label]) => (
+                                                            <button
+                                                                key={type}
+                                                                className={
+                                                                    [
+                                                                        "delete",
+                                                                        "reject",
+                                                                        "cancel",
+                                                                    ].includes(
+                                                                        type,
+                                                                    )
+                                                                        ? "danger-link"
+                                                                        : ""
+                                                                }
+                                                                onClick={() =>
+                                                                    type ===
+                                                                    "edit"
+                                                                        ? edit(
+                                                                              row,
+                                                                          )
+                                                                        : action(
+                                                                              row,
+                                                                              type,
+                                                                          )
+                                                                }
+                                                            >
+                                                                {label}
+                                                            </button>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    <div className="pagination">
+                        <span>
+                            Up to 20 records per page · visibility follows your
+                            role
+                        </span>
+                        <div>
+                            <button
+                                className="button secondary small"
+                                disabled={page === 1 || loading}
+                                onClick={() => setPage(page - 1)}
+                            >
+                                ← Previous
+                            </button>
+                            <button
+                                className="button secondary small"
+                                disabled={!hasMore || loading}
+                                onClick={() => setPage(page + 1)}
+                            >
+                                Next →
+                            </button>
+                        </div>
                     </div>
-                )}
-                <div className="pagination">
-                    <span>
-                        Up to 20 records per page · visibility follows your role
-                    </span>
-                    <div>
-                        <button
-                            className="button secondary small"
-                            disabled={page === 1 || loading}
-                            onClick={() => setPage(page - 1)}
-                        >
-                            ← Previous
-                        </button>
-                        <button
-                            className="button secondary small"
-                            disabled={!hasMore || loading}
-                            onClick={() => setPage(page + 1)}
-                        >
-                            Next →
-                        </button>
-                    </div>
-                </div>
-            </section>
+                </section>
+            )}
             {modal && (
                 <Editor
                     {...modal}
-                    catalogs={catalogs}
+                    catalogs={names}
                     onClose={() => setModal(null)}
                 />
             )}{" "}
             {details && (
                 <RecordDetails
                     row={details}
-                    catalogs={catalogs}
+                    catalogs={names}
                     onClose={() => setDetails(null)}
                 />
             )}
@@ -931,7 +1111,7 @@ export default function App() {
                             text="This workspace is not available for your role."
                         />
                     ) : route === "overview" ? (
-                        <Dashboard />
+                        <Dashboard catalogs={catalogs} />
                     ) : Object.hasOwn(resources, route) ? (
                         <ResourcePage
                             key={route}

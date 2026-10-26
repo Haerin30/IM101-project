@@ -23,8 +23,8 @@ export const resources = {
         description: "Find campus spaces and keep facility details current.",
         fields: [
             ["facilityName", "Facility name", "text", 100],
-            ["buildingId", "Building ID", "number", "buildings"],
-            ["facilityTypeId", "Facility type ID", "number", "types"],
+            ["buildingId", "Building", "number", "buildings"],
+            ["facilityTypeId", "Facility type", "number", "types"],
             ["floorNumber", "Floor number", "number", 32767],
             ["capacity", "Capacity", "number"],
             ["status", "Status", "default", "Available"],
@@ -42,13 +42,8 @@ export const resources = {
             "Browse equipment availability and manage campus inventory.",
         fields: [
             ["equipmentName", "Equipment name", "text", 100],
-            ["categoryId", "Category ID", "number", "categories"],
-            [
-                "homeFacilityId",
-                "Home facility ID",
-                "nullableNumber",
-                "facilities",
-            ],
+            ["categoryId", "Category", "number", "categories"],
+            ["homeFacilityId", "Home facility", "nullableNumber", "facilities"],
             ["totalQuantity", "Total quantity", "quantity"],
             ["availableQuantity", "Available quantity", "quantity"],
             ["serialNumber", "Serial number", "optional", 60],
@@ -71,7 +66,7 @@ export const resources = {
         id: "reservationId",
         description: "Request facility time and follow your booking history.",
         fields: [
-            ["facilityId", "Facility ID", "number", "facilities"],
+            ["facilityId", "Facility", "number", "facilities"],
             ["purpose", "Purpose", "textarea", 255],
             ["startDatetime", "Start date & time", "datetime"],
             ["endDatetime", "End date & time", "datetime"],
@@ -102,7 +97,7 @@ export const resources = {
         description: "Report issues and keep maintenance work moving.",
         fields: [
             ["targetKind", "Target", "select", ["facilityId", "equipmentId"]],
-            ["targetId", "Target ID", "number"],
+            ["targetId", "Facility", "number"],
             ["description", "Description", "textarea", 4000],
             ["priority", "Priority", "select", ["Normal", "Low", "High"]],
         ],
@@ -123,8 +118,8 @@ export const resources = {
         description:
             "Coordinate facility coverage while preserving assignment history.",
         fields: [
-            ["facilityId", "Facility ID", "number", "facilities"],
-            ["staffId", "Staff user ID", "number", "staff"],
+            ["facilityId", "Facility", "number", "facilities"],
+            ["staffId", "Maintenance staff", "number", "staff"],
             [
                 "assignedRole",
                 "Assigned role",
@@ -145,76 +140,50 @@ export const resources = {
     },
 };
 export const labels = {
-    reservationId: "Reservation ID",
-    assignmentId: "Assignment ID",
+    reservationId: "Reference",
+    assignmentId: "Reference",
     buildingName: "Building",
     floorCount: "Floors",
     locationNote: "Location",
     facilityName: "Facility",
-    buildingId: "Building ID",
+    buildingId: "Building",
     capacity: "Capacity",
     status: "Status",
     equipmentName: "Equipment",
-    categoryId: "Category ID",
+    categoryId: "Category",
     availableQuantity: "Available",
     totalQuantity: "Total",
     conditionStatus: "Condition",
-    purpose: "Purpose",
-    facilityId: "Facility ID",
+    purpose: "Reservation",
+    facilityId: "Facility",
     statusName: "Status",
     startDatetime: "Starts",
     endDatetime: "Ends",
-    loanId: "Loan ID",
-    userId: "Borrower ID",
+    loanId: "Loan reference",
+    userId: "Borrower",
     loanStatus: "Status",
     dueDate: "Due",
     returnDate: "Returned",
-    requestId: "Request ID",
+    requestId: "Reference",
     description: "Issue",
     priority: "Priority",
-    assignedStaffId: "Assigned staff ID",
-    staffId: "Staff ID",
+    assignedStaffId: "Assigned to",
+    staffId: "Staff member",
     assignedRole: "Assigned role",
     shift: "Shift",
     assignedDate: "Assigned",
     unassignedDate: "Ended",
-    requestedBy: "Requester ID",
-    approvedBy: "Approver ID",
+    requestedBy: "Requested by",
+    approvedBy: "Reviewed by",
     createdAt: "Created",
     requestedAt: "Requested",
     reportedAt: "Reported",
     resolvedAt: "Resolved",
-    reportedBy: "Reporter ID",
-    equipmentId: "Equipment ID",
-    facilityTypeId: "Type ID",
+    reportedBy: "Reported by",
+    equipmentId: "Equipment",
+    facilityTypeId: "Facility type",
     floorNumber: "Floor",
     serialNumber: "Serial number",
-    homeFacilityId: "Home facility ID",
+    homeFacilityId: "Home facility",
 };
-export function format(value, key) {
-    if (value === null || value === undefined || value === "") return "—";
-    if (["assignedDate", "unassignedDate"].includes(key))
-        return String(value).slice(0, 10);
-    if (
-        [
-            "startDatetime",
-            "endDatetime",
-            "dueDate",
-            "returnDate",
-            "createdAt",
-            "requestedAt",
-            "reportedAt",
-            "resolvedAt",
-            "loggedAt",
-        ].includes(key)
-    ) {
-        const date = new Date(value);
-        return Number.isFinite(date.getTime())
-            ? date.toLocaleString(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-              })
-            : "Unavailable";
-    }
-    return String(value);
-}
+export { formatValue as format } from "./presentation";

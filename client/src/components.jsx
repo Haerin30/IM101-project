@@ -2,6 +2,15 @@ import React, { useState, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { toInstant } from "./api";
 import { format, labels } from "./resources";
+import {
+    displayValue,
+    recordName,
+    recordReference,
+    purposePreview,
+} from "./presentation";
+import { useRecordNames } from "./names";
+import { useSession } from "./session";
+import { formErrors, fieldHints } from "./form-validation";
 export function Icon({ name = "overview" }) {
     const paths = {
         overview: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
@@ -13,6 +22,9 @@ export function Icon({ name = "overview" }) {
         maintenance: "M14 5a5 5 0 0 0-6 6L2 17l5 5 6-6a5 5 0 0 0 6-6l-4 3-4-4z",
         assignments:
             "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M2 22v-4a7 7 0 0 1 14 0v4 M18 4a4 4 0 0 1 0 8 M19 15a5 5 0 0 1 3 5",
+        calendar: "M4 5h16v16H4z M8 2v6 M16 2v6 M4 11h16 M8 15h2 M14 15h2",
+        profile: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M4 22v-3a8 8 0 0 1 16 0v3",
+        search: "M21 21l-6-6 M17 10a7 7 0 1 0-14 0 7 7 0 0 0 14 0",
     };
     return (
         <svg
@@ -68,6 +80,21 @@ export function Modal({ title, children, onClose, busy = false }) {
             previous?.focus();
         };
     }, []);
+    useEffect(() => {
+        const dialog = ref.current,
+            active = document.activeElement;
+        if (
+            dialog &&
+            (active === dialog ||
+                !dialog.contains(active) ||
+                active?.matches(":disabled"))
+        ) {
+            const enabled = dialog.querySelector(
+                "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
+            );
+            (enabled || dialog).focus();
+        }
+    });
     function keys(event) {
         if (event.key === "Escape" && !busy) onClose();
         if (event.key === "Tab") {
@@ -76,7 +103,10 @@ export function Modal({ title, children, onClose, busy = false }) {
                     "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)",
                 ),
             ];
-            if (!controls.length) return;
+            if (!controls.length) {
+                event.preventDefault();
+                return;
+            }
             const first = controls[0],
                 last = controls.at(-1);
             if (event.shiftKey && document.activeElement === first) {
@@ -96,6 +126,7 @@ export function Modal({ title, children, onClose, busy = false }) {
                 aria-modal="true"
                 aria-labelledby={titleId}
                 ref={ref}
+                tabIndex={-1}
                 onKeyDown={keys}
             >
                 <div className="modal-heading">
@@ -125,7 +156,8 @@ function optionData(list, key) {
         categories: "categoryId",
         staff: "userId",
     };
-    return (list || []).map((row) => ({
+    if (!Object.hasOwn(ids, key)) return [];
+    return (Array.isArray(list) ? list : []).map((row) => ({
         id: row[ids[key]],
         label:
             row.buildingName ??
@@ -135,6 +167,131 @@ function optionData(list, key) {
             row.categoryName ??
             `${row.fname} ${row.lname}`,
     }));
+}
+function NamedSelect({
+    id,
+    value,
+    onChange,
+    kind,
+    catalogs,
+    required = true,
+    invalid = false,
+    describedBy,
+}) {
+    const options = optionData(catalogs[kind], kind),
+        [query, setQuery] = useState("");
+    const heading =
+        {
+            facilities: "facilities",
+            equipment: "equipment",
+            buildings: "buildings",
+            types: "facility types",
+            categories: "categories",
+            staff: "staff members",
+        }[kind] || "choices";
+    const matching = options.filter(
+        (option) =>
+            option.id === Number(value) ||
+            option.label.toLowerCase().includes(query.trim().toLowerCase()),
+    );
+    const selected = catalogs[kind]?.find(
+        (row) =>
+            row[
+                {
+                    facilities: "facilityId",
+                    equipment: "equipmentId",
+                    buildings: "buildingId",
+                    types: "facilityTypeId",
+                    categories: "categoryId",
+                    staff: "userId",
+                }[kind]
+            ] === Number(value),
+    );
+    return (
+        <div className="resource-picker">
+            <label className="sr-only" htmlFor={id + "-search"}>
+                Search {heading}
+            </label>
+            <div className="picker-search">
+                <Icon name="search" />
+                <input
+                    id={id + "-search"}
+                    type="search"
+                    placeholder={"Search " + heading + "…"}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") event.preventDefault();
+                    }}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                />
+            </div>
+            <select
+                id={id}
+                value={value ?? ""}
+                onChange={onChange}
+                required={required}
+                aria-invalid={invalid || undefined}
+                aria-describedby={describedBy}
+            >
+                <option value="">
+                    {required
+                        ? "Choose " +
+                          (kind === "facilities"
+                              ? "a facility"
+                              : kind === "equipment"
+                                ? "equipment"
+                                : kind === "staff"
+                                  ? "a staff member"
+                                  : "an option")
+                        : "Unassigned"}
+                </option>
+                {value &&
+                    !options.some((option) => option.id === Number(value)) && (
+                        <option value={value} disabled>
+                            Selected record unavailable
+                        </option>
+                    )}
+                {matching.map((option) => (
+                    <option key={option.id} value={option.id}>
+                        {option.label}
+                    </option>
+                ))}
+            </select>
+            {query && !matching.length && (
+                <small className="picker-help">
+                    No matches in the loaded choices. Try another search or load
+                    more.
+                </small>
+            )}
+            {selected && kind === "facilities" && (
+                <small className="picker-help">
+                    {displayValue(selected, "buildingId", catalogs)}
+                    {selected.capacity
+                        ? " ? Capacity " + selected.capacity
+                        : ""}
+                </small>
+            )}
+            {selected &&
+                kind === "equipment" &&
+                selected.availableQuantity !== undefined && (
+                    <small className="picker-help">
+                        {selected.availableQuantity} available of{" "}
+                        {selected.totalQuantity} ?{" "}
+                        {selected.conditionStatus || "Condition unavailable"}
+                    </small>
+                )}
+            {catalogs.hasMore?.[kind] && (
+                <button
+                    type="button"
+                    className="button subtle small"
+                    disabled={catalogs.loadingMore?.[kind]}
+                    onClick={() => catalogs.loadMore(kind)}
+                >
+                    Load more {heading}
+                </button>
+            )}
+        </div>
+    );
 }
 export function Editor({
     title,
@@ -147,8 +304,15 @@ export function Editor({
     confirmLabel = "Save changes",
     onSubmit,
     onClose,
+    formKind,
 }) {
     const uid = useId();
+    const api = useSession()?.api;
+    const namedCatalogs = useRecordNames(
+        [{ ...initial, items: returnItems || initial.items }],
+        catalogs,
+        api,
+    );
     const [values, setValues] = useState(() =>
             Object.fromEntries(
                 fields.map(([name, , type, extra]) => [
@@ -164,7 +328,12 @@ export function Editor({
                 ]),
             ),
         ),
-        [entries, setEntries] = useState([{ equipmentId: "", quantity: "1" }]),
+        [entries, setEntries] = useState(
+            initial.items?.map((item) => ({
+                equipmentId: String(item.equipmentId),
+                quantity: String(item.quantity || 1),
+            })) || [{ equipmentId: "", quantity: "1" }],
+        ),
         [conditions, setConditions] = useState(() =>
             Object.fromEntries(
                 (returnItems || []).map((item) => [item.equipmentId, "Good"]),
@@ -174,9 +343,26 @@ export function Editor({
         [error, setError] = useState(""),
         [blocked, setBlocked] = useState(false);
     const pending = useRef(false);
+    const [invalid, setInvalid] = useState({});
+    const formRef = useRef(null);
+    useEffect(() => {
+        if (Object.keys(invalid).length)
+            formRef.current?.querySelector('[aria-invalid="true"]')?.focus();
+    }, [invalid]);
     async function submit(event) {
         event.preventDefault();
         if (pending.current || blocked) return;
+        const problems = formErrors(
+            fields,
+            values,
+            loanItems ? entries : undefined,
+            Date.now(),
+        );
+        setInvalid(problems);
+        if (Object.keys(problems).length) {
+            setError("Please review the highlighted fields.");
+            return;
+        }
         pending.current = true;
         setBusy(true);
         setError("");
@@ -257,8 +443,32 @@ export function Editor({
     }
     return (
         <Modal title={title} onClose={onClose} busy={busy}>
-            <form onSubmit={submit} aria-label={title}>
+            <form ref={formRef} noValidate onSubmit={submit} aria-label={title}>
                 <div className="modal-body">
+                    {formKind && (
+                        <div className="form-intro">
+                            <span className="form-intro-icon">
+                                <Icon name={formKind} />
+                            </span>
+                            <div>
+                                <h3>
+                                    {formKind === "reservations"
+                                        ? "A space for your next idea"
+                                        : formKind === "loans"
+                                          ? "Equipment for your activity"
+                                          : formKind === "maintenance"
+                                            ? "Tell us what needs attention"
+                                            : "Keep campus information current"}
+                                </h3>
+                                <p>
+                                    {formKind === "reservations" ||
+                                    formKind === "loans"
+                                        ? "Your request will be Pending until an authorized reviewer approves it."
+                                        : "Complete the details below. Required fields are marked *."}
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     {notice && <p className="form-note">{notice}</p>}
                     <Alert>{error}</Alert>
                     {blocked && (
@@ -267,210 +477,333 @@ export function Editor({
                             another action.
                         </p>
                     )}
-                    <div className="form-grid">
-                        {fields.map(([name, label, type, extra]) => (
-                            <div
-                                className={
-                                    type === "textarea" ? "field full" : "field"
-                                }
-                                key={name}
-                            >
-                                <label htmlFor={uid + name}>{label}</label>
-                                {type === "textarea" ? (
-                                    <textarea
-                                        id={uid + name}
-                                        rows="4"
-                                        value={values[name]}
-                                        onChange={(event) =>
-                                            setValues({
-                                                ...values,
-                                                [name]: event.target.value,
-                                            })
-                                        }
-                                        required
-                                    />
-                                ) : type === "select" ? (
-                                    <select
-                                        id={uid + name}
-                                        value={values[name] ?? ""}
-                                        onChange={(event) =>
-                                            setValues({
-                                                ...values,
-                                                [name]: event.target.value,
-                                            })
+                    <fieldset
+                        className="form-fields"
+                        disabled={busy || blocked}
+                    >
+                        <legend className="sr-only">{title} fields</legend>
+                        <div className="form-grid">
+                            {fields.map(([name, label, type, extra]) => (
+                                <div
+                                    className={
+                                        type === "textarea"
+                                            ? "field full"
+                                            : "field"
+                                    }
+                                    key={name}
+                                >
+                                    <label htmlFor={uid + name}>
+                                        {name === "targetId"
+                                            ? values.targetKind ===
+                                              "equipmentId"
+                                                ? "Equipment"
+                                                : "Facility"
+                                            : label}
+                                        {![
+                                            "optional",
+                                            "nullableNumber",
+                                        ].includes(type) &&
+                                            !(
+                                                type === "select" &&
+                                                extra.includes("")
+                                            ) && (
+                                                <span
+                                                    className="required-mark"
+                                                    aria-hidden="true"
+                                                >
+                                                    {" "}
+                                                    *
+                                                </span>
+                                            )}
+                                    </label>
+                                    {[
+                                        "facilityId",
+                                        "homeFacilityId",
+                                        "equipmentId",
+                                        "targetId",
+                                    ].includes(name) ||
+                                    (typeof extra === "string" &&
+                                        type !== "default" &&
+                                        ["number", "nullableNumber"].includes(
+                                            type,
+                                        )) ? (
+                                        <NamedSelect
+                                            id={uid + name}
+                                            value={values[name]}
+                                            catalogs={namedCatalogs}
+                                            kind={
+                                                typeof extra === "string" &&
+                                                name !== "targetId"
+                                                    ? extra
+                                                    : name === "equipmentId" ||
+                                                        (name === "targetId" &&
+                                                            values.targetKind ===
+                                                                "equipmentId")
+                                                      ? "equipment"
+                                                      : "facilities"
+                                            }
+                                            required={type !== "nullableNumber"}
+                                            invalid={Boolean(invalid[name])}
+                                            describedBy={uid + name + "-help"}
+                                            onChange={(event) =>
+                                                setValues({
+                                                    ...values,
+                                                    [name]: event.target.value,
+                                                })
+                                            }
+                                        />
+                                    ) : type === "textarea" ? (
+                                        <textarea
+                                            id={uid + name}
+                                            rows="4"
+                                            value={values[name]}
+                                            onChange={(event) =>
+                                                setValues({
+                                                    ...values,
+                                                    [name]: event.target.value,
+                                                })
+                                            }
+                                            required
+                                            aria-invalid={
+                                                Boolean(invalid[name]) ||
+                                                undefined
+                                            }
+                                            aria-describedby={
+                                                uid + name + "-help"
+                                            }
+                                        />
+                                    ) : type === "select" ? (
+                                        <select
+                                            id={uid + name}
+                                            value={values[name] ?? ""}
+                                            aria-invalid={
+                                                Boolean(invalid[name]) ||
+                                                undefined
+                                            }
+                                            aria-describedby={
+                                                uid + name + "-help"
+                                            }
+                                            onChange={(event) =>
+                                                setValues({
+                                                    ...values,
+                                                    [name]: event.target.value,
+                                                    ...(name === "targetKind"
+                                                        ? { targetId: "" }
+                                                        : {}),
+                                                })
+                                            }
+                                        >
+                                            {extra.map((option) => (
+                                                <option
+                                                    key={option}
+                                                    value={option}
+                                                >
+                                                    {option === "facilityId"
+                                                        ? "Facility"
+                                                        : option ===
+                                                            "equipmentId"
+                                                          ? "Equipment"
+                                                          : option ||
+                                                            "Unspecified"}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input
+                                            id={uid + name}
+                                            type={
+                                                type === "datetime"
+                                                    ? "datetime-local"
+                                                    : type === "date"
+                                                      ? "date"
+                                                      : [
+                                                              "number",
+                                                              "quantity",
+                                                              "nullableNumber",
+                                                          ].includes(type)
+                                                        ? "number"
+                                                        : "text"
+                                            }
+                                            min={type === "quantity" ? 0 : 1}
+                                            step={type === "datetime" ? 60 : 1}
+                                            list={
+                                                typeof extra === "string" &&
+                                                type !== "default"
+                                                    ? uid + extra
+                                                    : undefined
+                                            }
+                                            value={values[name]}
+                                            aria-invalid={
+                                                Boolean(invalid[name]) ||
+                                                undefined
+                                            }
+                                            aria-describedby={
+                                                uid + name + "-help"
+                                            }
+                                            onChange={(event) =>
+                                                setValues({
+                                                    ...values,
+                                                    [name]: event.target.value,
+                                                })
+                                            }
+                                            required={
+                                                ![
+                                                    "optional",
+                                                    "nullableNumber",
+                                                ].includes(type)
+                                            }
+                                        />
+                                    )}
+                                    <div
+                                        id={uid + name + "-help"}
+                                        className={
+                                            invalid[name]
+                                                ? "field-error"
+                                                : "field-hint"
                                         }
                                     >
-                                        {extra.map((option) => (
-                                            <option key={option} value={option}>
-                                                {option === "facilityId"
-                                                    ? "Facility"
-                                                    : option === "equipmentId"
-                                                      ? "Equipment"
-                                                      : option || "Unspecified"}
-                                            </option>
-                                        ))}
-                                    </select>
-                                ) : (
-                                    <input
-                                        id={uid + name}
-                                        type={
-                                            type === "datetime"
-                                                ? "datetime-local"
-                                                : type === "date"
-                                                  ? "date"
-                                                  : [
-                                                          "number",
-                                                          "quantity",
-                                                          "nullableNumber",
-                                                      ].includes(type)
-                                                    ? "number"
-                                                    : "text"
-                                        }
-                                        min={type === "quantity" ? 0 : 1}
-                                        step={type === "datetime" ? 60 : 1}
-                                        list={
-                                            typeof extra === "string" &&
-                                            type !== "default"
-                                                ? uid + extra
-                                                : undefined
-                                        }
-                                        value={values[name]}
-                                        onChange={(event) =>
-                                            setValues({
-                                                ...values,
-                                                [name]: event.target.value,
-                                            })
-                                        }
-                                        required={
-                                            ![
+                                        {invalid[name] ||
+                                            fieldHints[name] ||
+                                            ([
                                                 "optional",
                                                 "nullableNumber",
                                             ].includes(type)
-                                        }
-                                    />
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                    {Object.entries(catalogs).map(([key, list]) => (
-                        <datalist id={uid + key} key={key}>
-                            {optionData(list, key).map((item) => (
-                                <option
-                                    key={item.id}
-                                    value={item.id}
-                                    label={item.label}
-                                />
-                            ))}
-                        </datalist>
-                    ))}
-                    {loanItems && (
-                        <fieldset className="loan-items">
-                            <legend>Equipment items</legend>
-                            {entries.map((item, index) => (
-                                <div className="item-row" key={index}>
-                                    <label>
-                                        Equipment ID
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            list={uid + "equipment"}
-                                            value={item.equipmentId}
-                                            onChange={(event) =>
-                                                setEntries(
-                                                    entries.map((entry, i) =>
-                                                        i === index
-                                                            ? {
-                                                                  ...entry,
-                                                                  equipmentId:
-                                                                      event
-                                                                          .target
-                                                                          .value,
-                                                              }
-                                                            : entry,
-                                                    ),
-                                                )
-                                            }
-                                            required
-                                        />
-                                    </label>
-                                    <label>
-                                        Quantity
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={item.quantity}
-                                            onChange={(event) =>
-                                                setEntries(
-                                                    entries.map((entry, i) =>
-                                                        i === index
-                                                            ? {
-                                                                  ...entry,
-                                                                  quantity:
-                                                                      event
-                                                                          .target
-                                                                          .value,
-                                                              }
-                                                            : entry,
-                                                    ),
-                                                )
-                                            }
-                                            required
-                                        />
-                                    </label>
-                                    <button
-                                        type="button"
-                                        className="button subtle"
-                                        disabled={entries.length === 1}
-                                        onClick={() =>
-                                            setEntries(
-                                                entries.filter(
-                                                    (_, i) => i !== index,
-                                                ),
-                                            )
-                                        }
-                                    >
-                                        Remove
-                                    </button>
+                                                ? "Optional"
+                                                : "")}
+                                    </div>
                                 </div>
                             ))}
-                            <button
-                                type="button"
-                                className="button secondary"
-                                disabled={entries.length >= 50}
-                                onClick={() =>
-                                    setEntries([
-                                        ...entries,
-                                        { equipmentId: "", quantity: "1" },
-                                    ])
-                                }
-                            >
-                                + Add equipment
-                            </button>
-                        </fieldset>
-                    )}
-                    {returnItems && (
-                        <div className="return-list">
-                            {returnItems.map((item) => (
-                                <label key={item.equipmentId}>
-                                    Equipment #{item.equipmentId} · quantity{" "}
-                                    {item.quantity}
-                                    <select
-                                        value={conditions[item.equipmentId]}
-                                        onChange={(event) =>
-                                            setConditions({
-                                                ...conditions,
-                                                [item.equipmentId]:
-                                                    event.target.value,
-                                            })
-                                        }
-                                    >
-                                        <option>Good</option>
-                                        <option>Damaged</option>
-                                    </select>
-                                </label>
-                            ))}
                         </div>
-                    )}
+                        {loanItems && (
+                            <fieldset className="loan-items">
+                                <legend>Equipment items</legend>
+                                <p className="field-hint">
+                                    Choose each equipment type once and set the
+                                    number of units you need.
+                                </p>
+                                {invalid.items && (
+                                    <p className="field-error" role="alert">
+                                        {invalid.items}
+                                    </p>
+                                )}
+                                {entries.map((item, index) => (
+                                    <div className="item-row" key={index}>
+                                        <div className="loan-equipment-choice">
+                                            <label
+                                                htmlFor={
+                                                    uid + "equipment-" + index
+                                                }
+                                            >
+                                                Equipment
+                                            </label>
+                                            <NamedSelect
+                                                id={uid + "equipment-" + index}
+                                                kind="equipment"
+                                                catalogs={namedCatalogs}
+                                                value={item.equipmentId}
+                                                onChange={(event) =>
+                                                    setEntries(
+                                                        entries.map(
+                                                            (entry, i) =>
+                                                                i === index
+                                                                    ? {
+                                                                          ...entry,
+                                                                          equipmentId:
+                                                                              event
+                                                                                  .target
+                                                                                  .value,
+                                                                      }
+                                                                    : entry,
+                                                        ),
+                                                    )
+                                                }
+                                                required
+                                            />
+                                        </div>
+                                        <label>
+                                            Quantity
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={item.quantity}
+                                                onChange={(event) =>
+                                                    setEntries(
+                                                        entries.map(
+                                                            (entry, i) =>
+                                                                i === index
+                                                                    ? {
+                                                                          ...entry,
+                                                                          quantity:
+                                                                              event
+                                                                                  .target
+                                                                                  .value,
+                                                                      }
+                                                                    : entry,
+                                                        ),
+                                                    )
+                                                }
+                                                required
+                                            />
+                                        </label>
+                                        <button
+                                            type="button"
+                                            className="button subtle"
+                                            disabled={entries.length === 1}
+                                            onClick={() =>
+                                                setEntries(
+                                                    entries.filter(
+                                                        (_, i) => i !== index,
+                                                    ),
+                                                )
+                                            }
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                                <button
+                                    type="button"
+                                    className="button secondary"
+                                    disabled={entries.length >= 50}
+                                    onClick={() =>
+                                        setEntries([
+                                            ...entries,
+                                            { equipmentId: "", quantity: "1" },
+                                        ])
+                                    }
+                                >
+                                    + Add equipment
+                                </button>
+                            </fieldset>
+                        )}
+                        {returnItems && (
+                            <div className="return-list">
+                                {returnItems.map((item) => (
+                                    <label key={item.equipmentId}>
+                                        {recordName(
+                                            item.equipmentId,
+                                            "equipment",
+                                            namedCatalogs,
+                                        )}{" "}
+                                        · quantity {item.quantity}
+                                        <select
+                                            value={conditions[item.equipmentId]}
+                                            onChange={(event) =>
+                                                setConditions({
+                                                    ...conditions,
+                                                    [item.equipmentId]:
+                                                        event.target.value,
+                                                })
+                                            }
+                                        >
+                                            <option>Good</option>
+                                            <option>Damaged</option>
+                                        </select>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </fieldset>
                 </div>
                 <div className="modal-footer">
                     <button
@@ -493,19 +826,77 @@ export function Editor({
     );
 }
 export function RecordDetails({ row, onClose, catalogs }) {
+    const namedCatalogs = useRecordNames([row], catalogs, useSession()?.api);
     return (
-        <Modal title="Record details" onClose={onClose}>
+        <Modal
+            title={
+                row.reservationId
+                    ? "Reservation details"
+                    : row.loanId
+                      ? "Equipment loan details"
+                      : row.requestId
+                        ? "Maintenance details"
+                        : row.assignmentId
+                          ? "Assignment details"
+                          : "Record details"
+            }
+            onClose={onClose}
+        >
             <div className="modal-body">
+                <div className="detail-intro">
+                    <p className="eyebrow">{recordReference(row)}</p>
+                    <h3>
+                        {row.facilityName ||
+                            row.equipmentName ||
+                            row.buildingName ||
+                            purposePreview(row.purpose || row.description)}
+                    </h3>
+                    <p className="reference-note">
+                        Keep this reference if you need help with this record.
+                    </p>
+                </div>
                 <dl className="detail-grid">
                     {Object.keys(labels)
-                        .filter((key) => Object.hasOwn(row, key))
+                        .filter(
+                            (key) =>
+                                Object.hasOwn(row, key) &&
+                                ![
+                                    "reservationId",
+                                    "loanId",
+                                    "requestId",
+                                    "assignmentId",
+                                ].includes(key) &&
+                                !(
+                                    key === "facilityId" &&
+                                    Object.hasOwn(row, "facilityName")
+                                ) &&
+                                !(
+                                    key === "equipmentId" &&
+                                    Object.hasOwn(row, "equipmentName")
+                                ),
+                        )
                         .map((key) => (
                             <div key={key}>
-                                <dt>{labels[key]}</dt>
-                                <dd>
+                                <dt>
+                                    {key === "purpose"
+                                        ? "Full purpose"
+                                        : labels[key]}
+                                </dt>
+                                <dd
+                                    className={
+                                        key === "purpose"
+                                            ? "full-purpose"
+                                            : undefined
+                                    }
+                                >
                                     {key === "statusName"
                                         ? row[key]
-                                        : format(row[key], key)}
+                                        : displayValue(
+                                              row,
+                                              key,
+                                              namedCatalogs,
+                                              true,
+                                          )}
                                 </dd>
                             </div>
                         ))}
@@ -515,10 +906,11 @@ export function RecordDetails({ row, onClose, catalogs }) {
                         <h3>Loan items</h3>
                         {row.items.map((item) => (
                             <p key={item.equipmentId}>
-                                {catalogs.equipment?.find(
-                                    (e) => e.equipmentId === item.equipmentId,
-                                )?.equipmentName ||
-                                    `Equipment #${item.equipmentId}`}{" "}
+                                {recordName(
+                                    item.equipmentId,
+                                    "equipment",
+                                    namedCatalogs,
+                                )}{" "}
                                 · quantity {item.quantity} · out:{" "}
                                 {item.conditionOut || "—"} · in:{" "}
                                 {item.conditionIn || "—"}

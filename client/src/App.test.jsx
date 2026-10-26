@@ -31,14 +31,21 @@ function setup(role = roles[2], id = 301) {
                 status: "Available",
             },
         ],
-        equipment: [],
+        equipment: [
+            {
+                equipmentId: 101,
+                equipmentName: "Fixture projector",
+                totalQuantity: 5,
+                availableQuantity: 5,
+            },
+        ],
         reservations: [],
         loans: [],
         maintenanceRequests: [],
         assignments: [],
         facilityTypes: [],
         equipmentCategories: [],
-        staff: [],
+        staff: [{ userId: 201, fname: "Fixture", lname: "Staff" }],
     };
     const calls = [];
     let denyFacilities = false,
@@ -53,7 +60,16 @@ function setup(role = roles[2], id = 301) {
         if (path === "/auth/login")
             result = { token: "synthetic-token", expiresIn: 900 };
         else if (path === "/auth/me") result = { user };
-        else if (path === "/overview")
+        else if (
+            options.method === "GET" &&
+            /^\/reservations\/\d+$/.test(path)
+        ) {
+            const reservation = rows.reservations.find(
+                (row) => row.reservationId === Number(path.split("/")[2]),
+            );
+            if (!reservation) throw Error("Unexpected fixture reservation");
+            result = { reservation };
+        } else if (path === "/overview")
             result = {
                 overview: {
                     buildings: rows.buildings.length,
@@ -189,7 +205,7 @@ function setup(role = roles[2], id = 301) {
     };
 }
 async function login() {
-    fireEvent.change(screen.getByLabelText("Email address"), {
+    fireEvent.change(screen.getByLabelText("Campus email"), {
         target: { value: "fixture@example.test" },
     });
     fireEvent.change(screen.getByLabelText("Password"), {
@@ -201,7 +217,20 @@ async function login() {
     await screen.findByRole("heading", { name: /Welcome back, Fixture/ });
 }
 async function navigate(name) {
-    fireEvent.click(screen.getByRole("link", { name, exact: true }));
+    const names = {
+        Reservations: ["Reservations", "My Reservations"],
+        "Equipment loans": ["Equipment Loans", "My Equipment Loans"],
+        "Staff assignments": ["Staff Assignments", "My Assignments"],
+        Facilities: ["Facilities", "Browse Facilities"],
+        Equipment: ["Equipment", "Browse Equipment"],
+        Maintenance: ["Maintenance", "Maintenance Tasks", "Report Maintenance"],
+    }[name] || [name];
+    const nav = within(screen.getByRole("navigation"));
+    const link = names
+        .map((label) => nav.queryByRole("link", { name: label, exact: true }))
+        .find(Boolean);
+    expect(link).toBeTruthy();
+    fireEvent.click(link);
     await act(async () => {
         window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
@@ -212,10 +241,10 @@ test("real session provider protects shell, exposes role navigation and clears m
     await login();
     expect(screen.getByRole("navigation")).toBeTruthy();
     expect(
-        screen.queryByRole("link", { name: "Staff assignments" }),
+        screen.queryByRole("link", { name: "Staff Assignments" }),
     ).toBeNull();
-    await navigate("Buildings");
-    await screen.findByRole("heading", { name: "Buildings" });
+    await navigate("Facilities");
+    await screen.findByRole("heading", { name: "Browse Facilities" });
     expect(screen.queryByRole("button", { name: /Add building/ })).toBeNull();
     fireEvent.click(screen.getByText("Fixture User"));
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
@@ -232,24 +261,94 @@ test("administrator has management controls and empty states contain no demo rec
     setup(roles[0], 101);
     await login();
     expect(
-        screen.getByRole("link", { name: "Staff assignments" }),
+        screen.getByRole("link", { name: "Staff Assignments" }),
     ).toBeTruthy();
     await navigate("Buildings");
     await screen.findByRole("heading", { name: "Buildings" });
-    await screen.findByText("No records found");
+    await screen.findByText("Nothing here yet");
     expect(screen.getByRole("button", { name: /Add building/ })).toBeTruthy();
+});
+
+test("representative card browsing opens a preselected reservation without accepting actor overrides", async () => {
+    setup();
+    await login();
+    await navigate("Facilities");
+    const reserve = await screen.findByRole("button", {
+        name: "Reserve space",
+    });
+    fireEvent.click(reserve);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+        within(dialog).getByRole("combobox", { name: "Facility" }).value,
+    ).toBe("30");
+    expect(
+        within(dialog).queryByLabelText(/requester|approver|status/i),
+    ).toBeNull();
+    expect(within(dialog).getByText(/Pending until/)).toBeTruthy();
+});
+
+test("search is explicitly page-local and never sends unsupported API search parameters", async () => {
+    const fixture = setup();
+    await login();
+    await navigate("Facilities");
+    await screen.findByRole("button", { name: "Reserve space" });
+    fireEvent.change(
+        screen.getByRole("searchbox", { name: "Search this page" }),
+        { target: { value: "NoSuchSpace" } },
+    );
+    await screen.findByText("No matches on this page");
+    expect(
+        fixture.calls
+            .filter((call) => call.url.startsWith("/api/facilities?"))
+            .every(
+                (call) =>
+                    !call.url.includes("search=") && !call.url.includes("q="),
+            ),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await screen.findByRole("button", { name: "Reserve space" });
+});
+
+test("administrator dashboard summarizes actual pending work rather than fabricated statistics", async () => {
+    const fixture = setup(roles[0], 101);
+    fixture.rows.reservations.push({
+        reservationId: 7,
+        requestedBy: 301,
+        facilityId: 30,
+        statusId: 17,
+        purpose: "Review fixture",
+        startDatetime: new Date(Date.now() + 86400000).toISOString(),
+    });
+    fixture.rows.loans.push({
+        loanId: 9,
+        userId: 301,
+        loanStatus: "Pending",
+        items: [{ equipmentId: 101, quantity: 1 }],
+        dueDate: new Date(Date.now() + 86400000).toISOString(),
+    });
+    await login();
+    const pending = await screen.findAllByText("Pending reservations");
+    // The heading and metric share a meaningful label; inspect the metric link itself.
+    expect(pending).toBeTruthy();
+    const metric = screen
+        .getAllByText("Pending reservations")
+        .find((node) => node.closest("a.stat-card"));
+    expect(metric.closest("a").textContent).toContain("1");
+    expect(
+        screen.getByText("Pending equipment loans").closest("a").textContent,
+    ).toContain("1");
 });
 test("reservation form submits exactly four normalized fields once and re-fetches real data", async () => {
     const fixture = setup();
     await login();
     await navigate("Reservations");
-    await screen.findByRole("heading", { name: "Reservations" });
-    fireEvent.click(screen.getByRole("button", { name: /New reservation/ }));
+    await screen.findByRole("heading", { name: "My Reservations" });
+    fireEvent.click(screen.getByRole("button", { name: /Request a facility/ }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Facility ID"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Facility/), {
         target: { value: "30" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Purpose"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Purpose/), {
         target: { value: "Fixture event" },
     });
     const pad = (n) => String(n).padStart(2, "0");
@@ -257,10 +356,10 @@ test("reservation form submits exactly four normalized fields once and re-fetche
         `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
     const start = local(new Date(Date.now() + 2 * 86400000)),
         end = local(new Date(Date.now() + 2 * 86400000 + 3600000));
-    fireEvent.change(within(dialog).getByLabelText("Start date & time"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Start date & time/), {
         target: { value: start },
     });
-    fireEvent.change(within(dialog).getByLabelText("End date & time"), {
+    fireEvent.change(within(dialog).getByLabelText(/^End date & time/), {
         target: { value: end },
     });
     let done;
@@ -310,11 +409,11 @@ test("401 during navigation expires the session and hides previous records", asy
     expect(screen.getByRole("status").textContent).toMatch(/session expired/i);
     expect(screen.queryByRole("navigation")).toBeNull();
 });
-test("catalog datalist uses facility identity rather than its building ID", () => {
+test("facility selector shows names while retaining the facility identity internally", () => {
     render(
         <Editor
             title="Fixture editor"
-            fields={[]}
+            fields={[["facilityId", "Facility", "number", "facilities"]]}
             catalogs={{
                 facilities: [
                     {
@@ -328,7 +427,7 @@ test("catalog datalist uses facility identity rather than its building ID", () =
             onClose={() => {}}
         />,
     );
-    const option = document.querySelector("datalist option");
+    const option = screen.getByRole("option", { name: "Fixture hall" });
     expect(option.value).toBe("30");
 });
 test("uncertain mutations stay blocked and show reconciliation guidance without leaking diagnostics", async () => {
@@ -357,16 +456,19 @@ test("loan UI posts item quantities and due date without borrower overrides", as
     const fixture = setup();
     await login();
     await navigate("Equipment loans");
-    await screen.findByRole("heading", { name: "Equipment loans" });
-    fireEvent.click(screen.getByRole("button", { name: /New loan/ }));
+    await screen.findByRole("heading", { name: "My Equipment Loans" });
+    fireEvent.click(screen.getByRole("button", { name: /Request equipment/ }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Due date & time"), {
-        target: { value: "2028-01-10T10:00" },
+    const dueDate = new Date(Date.now() + 5 * 86400000),
+        pad = (n) => String(n).padStart(2, "0"),
+        dueLocal = `${dueDate.getFullYear()}-${pad(dueDate.getMonth() + 1)}-${pad(dueDate.getDate())}T10:00`;
+    fireEvent.change(within(dialog).getByLabelText(/^Due date & time/), {
+        target: { value: dueLocal },
     });
-    fireEvent.change(within(dialog).getByLabelText("Equipment ID"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Equipment/), {
         target: { value: "101" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Quantity"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Quantity/), {
         target: { value: "2" },
     });
     fireEvent.click(
@@ -377,7 +479,7 @@ test("loan UI posts item quantities and due date without borrower overrides", as
         (call) => call.url === "/api/loans" && call.options.method === "POST",
     );
     expect(JSON.parse(call.options.body)).toEqual({
-        dueDate: new Date("2028-01-10T10:00").toISOString(),
+        dueDate: new Date(dueLocal).toISOString(),
         items: [{ equipmentId: 101, quantity: 2 }],
     });
 });
@@ -385,18 +487,20 @@ test("maintenance UI sends one target and preserves multiline description", asyn
     const fixture = setup();
     await login();
     await navigate("Maintenance");
-    await screen.findByRole("heading", { name: "Maintenance" });
-    fireEvent.click(
-        screen.getByRole("button", { name: /New maintenance request/ }),
-    );
+    await screen.findByRole("heading", { name: "Report Maintenance" });
+    fireEvent.click(screen.getByRole("button", { name: /Report an issue/ }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Target"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Facility/), {
+        target: { value: "30" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^Target/), {
         target: { value: "equipmentId" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Target ID"), {
+    expect(within(dialog).getByLabelText(/^Equipment/).value).toBe("");
+    fireEvent.change(within(dialog).getByLabelText(/^Equipment/), {
         target: { value: "101" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Description"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Description/), {
         target: { value: "Fixture issue\nSecond line" },
     });
     fireEvent.click(
@@ -413,17 +517,102 @@ test("maintenance UI sends one target and preserves multiline description", asyn
         priority: "Normal",
     });
 });
+
+test("dashboard and reservation table show named facilities and previews with full purpose in Details", async () => {
+    const fixture = setup();
+    const purpose =
+        "Faculty forum\nDetailed seating and accessibility requirements.";
+    fixture.rows.reservations.push({
+        reservationId: 98,
+        facilityId: 30,
+        requestedBy: 301,
+        statusId: 17,
+        purpose,
+        startDatetime: new Date(2027, 0, 2, 9, 5).toISOString(),
+        endDatetime: new Date(2027, 0, 2, 10, 5).toISOString(),
+    });
+    await login();
+    await screen.findByText(/Fixture hall · 01\/02\/2027 09:05 AM/);
+    expect(screen.queryByText(purpose)).toBeNull();
+    expect(document.body.textContent).not.toContain("Facility #30");
+    await navigate("Reservations");
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("Fixture hall")).toBeTruthy();
+    expect(within(table).getByText("Faculty forum")).toBeTruthy();
+    expect(within(table).queryByText("30")).toBeNull();
+    fireEvent.click(
+        within(table).getByRole("button", { name: "View Details" }),
+    );
+    const details = await screen.findByRole("dialog");
+    expect(details.querySelector(".full-purpose").textContent).toBe(purpose);
+    expect(within(details).getByText("Fixture hall")).toBeTruthy();
+    expect(details.textContent).not.toContain("Facility ID");
+});
+
+test("reservation section switches to Approved-only calendar and opens scoped details", async () => {
+    const fixture = setup();
+    const now = new Date();
+    for (const [id, statusId, purpose] of [
+        [96, 29, "Approved workshop\nWorkshop full details"],
+        [97, 17, "Pending workshop"],
+    ])
+        fixture.rows.reservations.push({
+            reservationId: id,
+            facilityId: 30,
+            requestedBy: 301,
+            statusId,
+            purpose,
+            startDatetime: new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                15,
+                9,
+            ).toISOString(),
+            endDatetime: new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                15,
+                10,
+            ).toISOString(),
+        });
+    await login();
+    await navigate("Reservations");
+    fireEvent.click(
+        await screen.findByRole("button", { name: "Approved calendar" }),
+    );
+    const event = await screen.findByRole("button", {
+        name: /Approved workshop.*Fixture hall/,
+    });
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText("Pending workshop")).toBeNull();
+    fireEvent.click(event);
+    const details = await screen.findByRole("dialog");
+    expect(details.querySelector(".full-purpose").textContent).toBe(
+        "Approved workshop\nWorkshop full details",
+    );
+    expect(within(details).getByText("Approved")).toBeTruthy();
+    fireEvent.click(
+        within(details).getByRole("button", { name: "Close dialog" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+    await screen.findByRole("table");
+    expect(
+        fixture.calls
+            .filter((call) => call.url.startsWith("/api/reservations?"))
+            .every((call) => call.options.method === "GET"),
+    ).toBe(true);
+});
 test("administrator assignment form uses eligible staff ID and approved role/shift fields", async () => {
     const fixture = setup(roles[0], 101);
     await login();
     await navigate("Staff assignments");
-    await screen.findByRole("heading", { name: "Staff assignments" });
+    await screen.findByRole("heading", { name: "Staff Assignments" });
     fireEvent.click(screen.getByRole("button", { name: /Create assignment/ }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Facility ID"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Facility/), {
         target: { value: "30" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Staff user ID"), {
+    fireEvent.change(within(dialog).getByLabelText(/Maintenance staff/), {
         target: { value: "201" },
     });
     fireEvent.click(
@@ -518,6 +707,10 @@ test("staff navigation and maintenance claim/progress use fixed endpoints and ac
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "End" })).toBeNull();
     await navigate("Maintenance");
+    expect(screen.queryByRole("button", { name: "Claim" })).toBeNull();
+    fireEvent.click(
+        await screen.findByRole("checkbox", { name: "Assigned to me" }),
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Claim" }));
     fireEvent.click(
         within(screen.getByRole("dialog")).getByRole("button", {
@@ -534,7 +727,7 @@ test("staff navigation and maintenance claim/progress use fixed endpoints and ac
     ).toEqual({ staffId: 201 });
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Maintenance action"), {
+    fireEvent.change(within(dialog).getByLabelText(/^Maintenance action/), {
         target: { value: "Synthetic inspection" },
     });
     fireEvent.click(
@@ -583,7 +776,7 @@ test.each(["approve", "reject"])(
         fireEvent.click(button);
         const dialog = screen.getByRole("dialog");
         expect(within(dialog).getByRole("heading").textContent).toContain(
-            "#70",
+            "RES-000070",
         );
         fireEvent.click(
             within(dialog).getByRole("button", { name: "Confirm " + action }),

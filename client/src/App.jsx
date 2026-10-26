@@ -1,7 +1,30 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, {
+    useEffect,
+    useState,
+    useRef,
+    useMemo,
+    useCallback,
+} from "react";
 import { useSession, roles } from "./session";
-import { resources, labels, format } from "./resources";
+import { resources, labels } from "./resources";
 import { Alert, Badge, Editor, Icon, RecordDetails } from "./components";
+import { displayValue, recordReference } from "./presentation";
+import { useRecordNames } from "./names";
+import ReservationCalendar from "./ReservationCalendar";
+import Dashboard from "./Dashboard";
+import {
+    AppShell,
+    Profile,
+    navigation,
+    PageHeader,
+    DataTable,
+    ResourceCard,
+    EmptyState as Empty,
+    Skeleton,
+    Toast,
+    requestLink,
+    rowTitle,
+} from "./ui";
 const isAdmin = (user) => user.role.roleName === roles[0],
     isStaff = (user) => user.role.roleName === roles[1];
 function useRoute() {
@@ -51,18 +74,42 @@ export function Login() {
                 <div className="story-copy">
                     <p className="eyebrow">ONE CONNECTED CAMPUS</p>
                     <h1>
-                        Better spaces.
+                        Your campus.
                         <br />
-                        Smoother days.
+                        One place.
                     </h1>
                     <p>
-                        A shared workspace for campus facilities, equipment and
-                        the people who keep them running.
+                        Find a space. Bring your plans to life. A simpler way to
+                        reserve, borrow and care for the spaces we share.
                     </p>
-                    <div className="story-tags">
-                        <span>Reserve a space</span>
-                        <span>Borrow equipment</span>
-                        <span>Keep campus moving</span>
+                    <div className="login-features">
+                        <div>
+                            <Icon name="reservations" />
+                            <span>
+                                <strong>Make room for your ideas</strong>
+                                <small>
+                                    Find and request the right campus space.
+                                </small>
+                            </span>
+                        </div>
+                        <div>
+                            <Icon name="equipment" />
+                            <span>
+                                <strong>Bring what you need</strong>
+                                <small>
+                                    Borrow equipment for your next activity.
+                                </small>
+                            </span>
+                        </div>
+                        <div>
+                            <Icon name="maintenance" />
+                            <span>
+                                <strong>Keep campus at its best</strong>
+                                <small>
+                                    Report an issue and follow its progress.
+                                </small>
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <p className="story-footer">
@@ -74,7 +121,7 @@ export function Login() {
                     <p className="eyebrow">YOUR CAMPUS WORKSPACE</p>
                     <h2>Welcome back</h2>
                     <p className="muted">
-                        Sign in with your campus account to continue.
+                        Everything you need for your next campus activity.
                     </p>
                     {notice && (
                         <p className="notice" role="status">
@@ -83,7 +130,7 @@ export function Login() {
                     )}
                     <Alert>{error}</Alert>
                     <form onSubmit={submit}>
-                        <label htmlFor="login-email">Email address</label>
+                        <label htmlFor="login-email">Campus email</label>
                         <input
                             id="login-email"
                             type="email"
@@ -129,12 +176,21 @@ export function Login() {
 }
 function useCatalogs(user, api, revision) {
     const [catalogs, setCatalogs] = useState({});
+    const [pages, setPages] = useState({}),
+        [loadingMore, setLoadingMore] = useState({});
+    const controllerRef = useRef(null),
+        pending = useRef(new Set());
     useEffect(() => {
         if (!user) {
             setCatalogs({});
             return;
         }
         const controller = new AbortController();
+        controllerRef.current = controller;
+        pending.current.clear();
+        setPages({});
+        setLoadingMore({});
+        setCatalogs({});
         const endpoints = [
             ["buildings", "/buildings?limit=100", "buildings"],
             ["facilities", "/facilities?limit=100", "facilities"],
@@ -149,16 +205,35 @@ function useCatalogs(user, api, revision) {
             ...(isAdmin(user) ? [["staff", "/staff?limit=100", "staff"]] : []),
         ];
         Promise.all(
-            endpoints.map(async ([key, path, resultKey]) => [
-                key,
-                (await api.request(path, { signal: controller.signal }))[
-                    resultKey
-                ],
-            ]),
+            endpoints.map(async ([key, path, resultKey]) => {
+                const data = await api.request(path, {
+                    signal: controller.signal,
+                });
+                return {
+                    key,
+                    rows: data[resultKey],
+                    more: Boolean(data.pagination?.hasMore),
+                    resultKey,
+                    path: path.split("?")[0],
+                };
+            }),
         )
             .then((entries) => {
-                if (!controller.signal.aborted)
-                    setCatalogs(Object.fromEntries(entries));
+                if (!controller.signal.aborted) {
+                    setCatalogs(
+                        Object.fromEntries(
+                            entries.map((entry) => [entry.key, entry.rows]),
+                        ),
+                    );
+                    setPages(
+                        Object.fromEntries(
+                            entries.map((entry) => [
+                                entry.key,
+                                { ...entry, page: 1 },
+                            ]),
+                        ),
+                    );
+                }
             })
             .catch(() => {
                 if (!controller.signal.aborted)
@@ -166,186 +241,77 @@ function useCatalogs(user, api, revision) {
             });
         return () => controller.abort();
     }, [user, api, revision]);
-    return catalogs;
-}
-function Dashboard() {
-    const { api, user } = useSession();
-    const [data, setData] = useState(null),
-        [error, setError] = useState(""),
-        [revision, setRevision] = useState(0);
-    useEffect(() => {
-        const controller = new AbortController();
-        setError("");
-        Promise.all([
-            api.request("/overview", { signal: controller.signal }),
-            api.request("/reservations?limit=5", { signal: controller.signal }),
-            api.request("/loans?limit=5", { signal: controller.signal }),
-        ])
-            .then(([overview, reservations, loans]) => {
+    const loadMore = useCallback(
+        async (key) => {
+            const entry = pages[key],
+                controller = controllerRef.current;
+            if (
+                !entry?.more ||
+                pending.current.has(key) ||
+                !controller ||
+                controller.signal.aborted
+            )
+                return;
+            pending.current.add(key);
+            setLoadingMore((previous) => ({ ...previous, [key]: true }));
+            try {
+                const data = await api.request(
+                    `${entry.path}?limit=100&page=${entry.page + 1}`,
+                    { signal: controller.signal },
+                );
+                if (!controller.signal.aborted) {
+                    setCatalogs((previous) => ({
+                        ...previous,
+                        [key]: [...previous[key], ...data[entry.resultKey]],
+                    }));
+                    setPages((previous) => ({
+                        ...previous,
+                        [key]: {
+                            ...entry,
+                            page: entry.page + 1,
+                            more: data.pagination.hasMore,
+                        },
+                    }));
+                }
+            } catch {
                 if (!controller.signal.aborted)
-                    setData({
-                        overview: overview.overview,
-                        reservations: reservations.reservations,
-                        loans: loans.loans,
-                    });
-            })
-            .catch((error) => {
-                if (!controller.signal.aborted) setError(error.message);
-            });
-        return () => controller.abort();
-    }, [api, revision]);
-    return (
-        <>
-            <div className="page-heading">
-                <div>
-                    <p className="eyebrow">CAMPUS AT A GLANCE</p>
-                    <h1>Welcome back, {user.fname}.</h1>
-                    <p className="muted">
-                        Here’s what is in your campus workspace.
-                    </p>
-                </div>
-                <button
-                    className="button secondary"
-                    onClick={() => setRevision(revision + 1)}
-                >
-                    Refresh
-                </button>
-            </div>
-            <Alert>{error}</Alert>
-            {!data && !error ? (
-                <p role="status">Loading your workspace…</p>
-            ) : (
-                data && (
-                    <>
-                        <div className="metric-grid">
-                            {Object.entries(data.overview).map(
-                                ([key, value]) => (
-                                    <a
-                                        href={"#/" + key}
-                                        className="metric"
-                                        key={key}
-                                    >
-                                        <span className="metric-icon">
-                                            <Icon name={key} />
-                                        </span>
-                                        <div>
-                                            <p>
-                                                {resources[key]?.title || key}
-                                            </p>
-                                            <strong>
-                                                {Number.isFinite(value)
-                                                    ? value.toLocaleString()
-                                                    : "—"}
-                                            </strong>
-                                        </div>
-                                        <span className="metric-arrow">↗</span>
-                                    </a>
-                                ),
-                            )}
-                        </div>
-                        <div className="dashboard-grid">
-                            <section className="panel">
-                                <div className="panel-title">
-                                    <h2>Recent reservations</h2>
-                                    <a href="#/reservations">View all →</a>
-                                </div>
-                                {data.reservations.length ? (
-                                    data.reservations.map((row) => (
-                                        <div
-                                            className="activity"
-                                            key={row.reservationId}
-                                        >
-                                            <span className="activity-icon">
-                                                <Icon name="reservations" />
-                                            </span>
-                                            <div>
-                                                <strong>{row.purpose}</strong>
-                                                <p>
-                                                    Facility #{row.facilityId} ·{" "}
-                                                    {format(
-                                                        row.startDatetime,
-                                                        "startDatetime",
-                                                    )}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <Empty
-                                        title="No reservations yet"
-                                        text="Your authorized booking history will appear here."
-                                    />
-                                )}
-                            </section>
-                            <section className="panel">
-                                <div className="panel-title">
-                                    <h2>Recent equipment loans</h2>
-                                    <a href="#/loans">View all →</a>
-                                </div>
-                                {data.loans.length ? (
-                                    data.loans.map((row) => (
-                                        <div
-                                            className="activity"
-                                            key={row.loanId}
-                                        >
-                                            <span className="activity-icon">
-                                                <Icon name="loans" />
-                                            </span>
-                                            <div>
-                                                <strong>
-                                                    Loan #{row.loanId}
-                                                </strong>
-                                                <p>
-                                                    Due{" "}
-                                                    {format(
-                                                        row.dueDate,
-                                                        "dueDate",
-                                                    )}
-                                                </p>
-                                            </div>
-                                            <Badge value={row.loanStatus} />
-                                        </div>
-                                    ))
-                                ) : (
-                                    <Empty
-                                        title="No borrowing requests"
-                                        text="Request equipment from the loans workspace."
-                                    />
-                                )}
-                            </section>
-                        </div>
-                        <div className="workspace-note">
-                            <Icon name="facilities" />
-                            <div>
-                                <strong>Plan your next campus activity.</strong>
-                                <p>
-                                    Browse facilities and equipment, then submit
-                                    a request for review.
-                                </p>
-                            </div>
-                            <a className="button secondary" href="#/facilities">
-                                Browse facilities →
-                            </a>
-                        </div>
-                    </>
-                )
-            )}
-        </>
+                    setCatalogs((previous) => ({
+                        ...previous,
+                        unavailable: true,
+                    }));
+            } finally {
+                if (!controller.signal.aborted) {
+                    pending.current.delete(key);
+                    setLoadingMore((previous) => ({
+                        ...previous,
+                        [key]: false,
+                    }));
+                }
+            }
+        },
+        [api, pages],
+    );
+    return useMemo(
+        () => ({
+            ...catalogs,
+            loadMore,
+            loadingMore,
+            viewer: user,
+            hasMore: Object.fromEntries(
+                Object.entries(pages).map(([key, value]) => [key, value.more]),
+            ),
+        }),
+        [catalogs, loadMore, loadingMore, pages, user],
     );
 }
-function Empty({
-    title = "No records found",
-    text = "Records you are allowed to view will appear here.",
+function ResourcePage({
+    name,
+    catalogs,
+    onChange,
+    pageTitle,
+    calendarOnly = false,
+    intent = "",
 }) {
-    return (
-        <div className="empty-state">
-            <span className="empty-icon">◇</span>
-            <h3>{title}</h3>
-            <p>{text}</p>
-        </div>
-    );
-}
-function ResourcePage({ name, catalogs, onChange }) {
     const resource = resources[name],
         { api, user } = useSession();
     const [rows, setRows] = useState([]),
@@ -358,6 +324,18 @@ function ResourcePage({ name, catalogs, onChange }) {
         [modal, setModal] = useState(null),
         [details, setDetails] = useState(null),
         [toast, setToast] = useState("");
+    const [reservationView, setReservationView] = useState(
+        calendarOnly ? "calendar" : "list",
+    );
+    const [search, setSearch] = useState(""),
+        [catalogView, setCatalogView] = useState(
+            isAdmin(user) ? "table" : "cards",
+        ),
+        [assignedOnly, setAssignedOnly] = useState(
+            name === "maintenance" && isStaff(user),
+        );
+    const consumedIntent = useRef(false);
+    const names = useRecordNames(rows, catalogs, api);
     const refresh = () => setRevision((value) => value + 1);
     useEffect(() => {
         const controller = new AbortController();
@@ -367,6 +345,8 @@ function ResourcePage({ name, catalogs, onChange }) {
         if (filter && ["loans", "maintenance"].includes(name))
             query.set("status", filter);
         if (filter && name === "assignments") query.set("active", filter);
+        if (name === "maintenance" && assignedOnly)
+            query.set("assignedStaffId", String(user.userId));
         api.request(resource.path + "?" + query, { signal: controller.signal })
             .then((data) => {
                 if (!controller.signal.aborted) {
@@ -381,7 +361,16 @@ function ResourcePage({ name, catalogs, onChange }) {
                 if (!controller.signal.aborted) setLoading(false);
             });
         return () => controller.abort();
-    }, [api, resource, name, page, filter, revision]);
+    }, [
+        api,
+        resource,
+        name,
+        page,
+        filter,
+        revision,
+        assignedOnly,
+        user.userId,
+    ]);
     const enriched = rows.map((row) => ({
         ...row,
         ...(name === "reservations"
@@ -389,17 +378,54 @@ function ResourcePage({ name, catalogs, onChange }) {
                   statusName:
                       catalogs.statuses?.find(
                           (status) => status.statusId === row.statusId,
-                      )?.statusName || `Status #${row.statusId}`,
+                      )?.statusName || "Status unavailable",
               }
             : {}),
     }));
-    function edit(row) {
+    const visible = enriched.filter(
+        (row) =>
+            (!assignedOnly || row.assignedStaffId === user.userId) &&
+            (!search.trim() ||
+                Object.keys(labels).some(
+                    (key) =>
+                        Object.hasOwn(row, key) &&
+                        displayValue(row, key, names, true)
+                            .toLowerCase()
+                            .includes(search.trim().toLowerCase()),
+                )),
+    );
+    useEffect(() => {
+        if (consumedIntent.current) return;
+        consumedIntent.current = true;
+        const query = new URLSearchParams(intent);
+        if (query.get("create") !== "1") return;
+        if ((resource.manage || name === "assignments") && !isAdmin(user))
+            return;
+        const facility = Number(query.get("facility")),
+            equipment = Number(query.get("equipment"));
+        edit(null, {
+            ...(name === "reservations" &&
+            Number.isInteger(facility) &&
+            facility > 0 &&
+            facility <= 2147483647
+                ? { facilityId: facility }
+                : {}),
+            ...(name === "loans" &&
+            Number.isInteger(equipment) &&
+            equipment > 0 &&
+            equipment <= 2147483647
+                ? { items: [{ equipmentId: equipment, quantity: 1 }] }
+                : {}),
+        });
+    }, []);
+    function edit(row, defaults = {}) {
         setModal({
             title: row
                 ? `Edit ${resource.singular}`
                 : `New ${resource.singular}`,
             fields: resource.fields,
-            initial: row || {},
+            initial: row || defaults,
+            formKind: name,
             confirmLabel: row ? "Save changes" : "Submit request",
             onSubmit: async (data) => {
                 if (name === "maintenance") {
@@ -467,7 +493,7 @@ function ResourcePage({ name, catalogs, onChange }) {
                 "Confirm physical return of every item. Stock is restored exactly once. Damaged returns quarantine the equipment pool.";
         }
         if (type === "assign") {
-            fields = [["staffId", "Staff user ID", "number", "staff"]];
+            fields = [["staffId", "Maintenance staff", "number", "staff"]];
             notice = "Assign this request to active maintenance staff.";
         }
         if (type === "claim") {
@@ -538,7 +564,7 @@ function ResourcePage({ name, catalogs, onChange }) {
             delete: "Delete",
         };
         setModal({
-            title: `${captions[type]} · ${resource.singular} #${id}`,
+            title: `${captions[type]} · ${rowTitle(row)}${resource.manage ? "" : " · " + recordReference(row)}`,
             fields,
             initial: row,
             returnItems: type === "return" ? row.items : null,
@@ -603,225 +629,382 @@ function ResourcePage({ name, catalogs, onChange }) {
             list.push(["assignmentEdit", "Update"], ["end", "End"]);
         return list;
     }
+
     const canCreate = resource.manage
         ? isAdmin(user)
+        : name !== "assignments" || isAdmin(user);
+    const createLabel = resource.manage
+        ? "Add " + resource.singular
         : name === "assignments"
-          ? isAdmin(user)
-          : true;
+          ? "Create assignment"
+          : name === "reservations"
+            ? "Request a facility"
+            : name === "loans"
+              ? "Request equipment"
+              : "Report an issue";
+    const renderActions = (row) => (
+        <>
+            <button onClick={() => view(row)}>View Details</button>
+            {actions(row).map(([type, label]) => (
+                <button
+                    key={type}
+                    className={
+                        ["delete", "reject", "cancel"].includes(type)
+                            ? "danger-link"
+                            : ""
+                    }
+                    onClick={() =>
+                        type === "edit" ? edit(row) : action(row, type)
+                    }
+                >
+                    {label}
+                </button>
+            ))}
+        </>
+    );
     return (
         <>
-            <div className="page-heading">
-                <div>
-                    <p className="eyebrow">CAMPUS WORKSPACE</p>
-                    <h1>{resource.title}</h1>
-                    <p className="muted">{resource.description}</p>
-                </div>
+            <PageHeader
+                title={pageTitle || resource.title}
+                description={
+                    calendarOnly
+                        ? "Approved reservations you are allowed to view. Select an event for full details."
+                        : resource.description
+                }
+            >
                 {canCreate && (
                     <button
                         className="button primary"
                         onClick={() => edit(null)}
                     >
-                        +{" "}
-                        {resource.manage
-                            ? "Add " + resource.singular
-                            : name === "assignments"
-                              ? "Create assignment"
-                              : "New " + resource.singular}
+                        <span aria-hidden="true">＋</span>
+                        {createLabel}
                     </button>
                 )}
-            </div>
+            </PageHeader>
             <Alert>{error}</Alert>
-            {toast && (
-                <div className="success-banner" role="status">
-                    {toast}
+            {catalogs.unavailable && (
+                <p className="notice">
+                    Some resource names could not be loaded. Use Refresh to try
+                    again.
+                </p>
+            )}
+            {name === "reservations" && (
+                <div
+                    className="reservation-view-switch"
+                    role="group"
+                    aria-label="Reservation view"
+                >
+                    <button
+                        className="button secondary"
+                        aria-pressed={reservationView === "list"}
+                        onClick={() => {
+                            if (calendarOnly)
+                                window.location.hash = "#/reservations";
+                            else setReservationView("list");
+                        }}
+                    >
+                        List view
+                    </button>
+                    <button
+                        className="button secondary"
+                        aria-pressed={reservationView === "calendar"}
+                        onClick={() => {
+                            window.location.hash = "#/calendar";
+                        }}
+                    >
+                        Approved calendar
+                    </button>
+                    <span className="scope-note">
+                        {isAdmin(user)
+                            ? "All authorized campus requests"
+                            : "Only your reservations are shown"}
+                    </span>
                 </div>
             )}
-            <section className="panel table-panel">
-                <div className="table-toolbar">
-                    <div>
-                        <strong>
-                            {isAdmin(user)
-                                ? "Management"
-                                : name === "loans" && isStaff(user)
-                                  ? "Borrowing review"
-                                  : "Your workspace"}
-                        </strong>
-                        <span className="muted"> · page {page}</span>
-                    </div>
-                    <div className="toolbar-actions">
-                        {["loans", "maintenance", "assignments"].includes(
-                            name,
-                        ) && (
-                            <label className="filter-label">
-                                Filter
-                                <select
-                                    aria-label="Filter records"
-                                    value={filter}
-                                    onChange={(event) => {
-                                        setFilter(event.target.value);
-                                        setPage(1);
-                                    }}
-                                >
-                                    <option value="">All history</option>
-                                    {(name === "loans"
-                                        ? [
-                                              "Pending",
-                                              "Approved",
-                                              "Rejected",
-                                              "Returned",
-                                          ]
-                                        : name === "maintenance"
-                                          ? ["Open", "In Progress", "Resolved"]
-                                          : ["true", "false"]
-                                    ).map((value) => (
-                                        <option key={value} value={value}>
-                                            {value === "true"
-                                                ? "Active"
-                                                : value === "false"
-                                                  ? "Ended"
-                                                  : value}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        )}
-                        <button
-                            className="button secondary small"
-                            onClick={refresh}
-                            disabled={loading}
-                        >
-                            Refresh
-                        </button>
-                    </div>
-                </div>
-                {loading ? (
-                    <div className="loading-state" role="status">
-                        Loading {resource.title.toLowerCase()}…
-                    </div>
-                ) : error ? (
-                    <Empty
-                        title="Unable to load records"
-                        text="Use Refresh to try the read request again."
-                    />
-                ) : !rows.length ? (
-                    <Empty
-                        text={
-                            filter
-                                ? "No records match this filter."
-                                : "Your authorized records will appear here."
-                        }
-                    />
-                ) : (
-                    <div className="table-scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    {resource.columns.map((key) => (
-                                        <th key={key}>{labels[key] || key}</th>
-                                    ))}
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {enriched.map((row) => (
-                                    <tr key={row[resource.id]}>
-                                        {resource.columns.map((key) => (
-                                            <td key={key}>
-                                                {[
-                                                    "status",
-                                                    "statusName",
-                                                    "loanStatus",
-                                                    "conditionStatus",
-                                                    "priority",
-                                                ].includes(key) ? (
-                                                    <Badge value={row[key]} />
-                                                ) : (
-                                                    <span
-                                                        className="cell-text"
-                                                        title={format(
-                                                            row[key],
-                                                            key,
-                                                        )}
-                                                    >
-                                                        {format(row[key], key)}
-                                                    </span>
-                                                )}
-                                            </td>
+            <Toast onClose={() => setToast("")}>{toast}</Toast>
+            {name === "reservations" && reservationView === "calendar" ? (
+                <ReservationCalendar
+                    api={api}
+                    catalogs={catalogs}
+                    onSelect={view}
+                    onRefreshCatalogs={onChange}
+                />
+            ) : (
+                <section className="panel table-panel">
+                    <div className="table-toolbar">
+                        <label className="search-control">
+                            <Icon name="search" />
+                            <input
+                                type="search"
+                                aria-label="Search this page"
+                                placeholder={
+                                    "Search " +
+                                    resource.title.toLowerCase() +
+                                    " on this page?"
+                                }
+                                value={search}
+                                onChange={(event) =>
+                                    setSearch(event.target.value)
+                                }
+                            />
+                        </label>
+                        <div className="toolbar-actions">
+                            {["loans", "maintenance", "assignments"].includes(
+                                name,
+                            ) && (
+                                <label className="filter-label">
+                                    {name === "assignments"
+                                        ? "Assignment"
+                                        : "Status"}
+                                    <select
+                                        aria-label="Filter records"
+                                        value={filter}
+                                        onChange={(event) => {
+                                            setFilter(event.target.value);
+                                            setPage(1);
+                                        }}
+                                    >
+                                        <option value="">All history</option>
+                                        {(name === "loans"
+                                            ? [
+                                                  "Pending",
+                                                  "Approved",
+                                                  "Rejected",
+                                                  "Returned",
+                                              ]
+                                            : name === "maintenance"
+                                              ? [
+                                                    "Open",
+                                                    "In Progress",
+                                                    "Resolved",
+                                                ]
+                                              : ["true", "false"]
+                                        ).map((value) => (
+                                            <option key={value} value={value}>
+                                                {value === "true"
+                                                    ? "Active"
+                                                    : value === "false"
+                                                      ? "Ended"
+                                                      : value}
+                                            </option>
                                         ))}
-                                        <td>
+                                    </select>
+                                </label>
+                            )}
+                            {name === "maintenance" && isStaff(user) && (
+                                <label className="check-filter">
+                                    <input
+                                        type="checkbox"
+                                        checked={assignedOnly}
+                                        onChange={(event) => {
+                                            setAssignedOnly(
+                                                event.target.checked,
+                                            );
+                                            setPage(1);
+                                        }}
+                                    />
+                                    Assigned to me
+                                </label>
+                            )}
+                            {["facilities", "equipment"].includes(name) && (
+                                <div
+                                    className="view-toggle"
+                                    role="group"
+                                    aria-label="Resource layout"
+                                >
+                                    <button
+                                        className={
+                                            catalogView === "cards"
+                                                ? "selected"
+                                                : ""
+                                        }
+                                        aria-pressed={catalogView === "cards"}
+                                        onClick={() => setCatalogView("cards")}
+                                    >
+                                        Cards
+                                    </button>
+                                    <button
+                                        className={
+                                            catalogView === "table"
+                                                ? "selected"
+                                                : ""
+                                        }
+                                        aria-pressed={catalogView === "table"}
+                                        onClick={() => setCatalogView("table")}
+                                    >
+                                        Table
+                                    </button>
+                                </div>
+                            )}
+                            <button
+                                className="button secondary small"
+                                disabled={loading}
+                                onClick={() => {
+                                    refresh();
+                                    onChange();
+                                }}
+                            >
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div className="collection-meta">
+                        <span>
+                            {loading
+                                ? "Loading records…"
+                                : visible.length + " shown"}{" "}
+                            ? page {page}
+                        </span>
+                        <span>Search applies to this page</span>
+                    </div>
+                    {loading ? (
+                        <Skeleton
+                            cards={
+                                catalogView === "cards" &&
+                                ["facilities", "equipment"].includes(name)
+                            }
+                            label={
+                                "Loading " + resource.title.toLowerCase() + "?"
+                            }
+                        />
+                    ) : error ? (
+                        <Empty
+                            title="Unable to load records"
+                            text="Check your connection and use Refresh to try again."
+                        />
+                    ) : !visible.length ? (
+                        <Empty
+                            icon={name}
+                            title={
+                                search
+                                    ? "No matches on this page"
+                                    : filter || assignedOnly
+                                      ? "No matching requests"
+                                      : "Nothing here yet"
+                            }
+                            text={
+                                search
+                                    ? "Try another name, clear your search, or check the next page."
+                                    : name === "reservations"
+                                      ? "Your requests and their decisions will appear here."
+                                      : name === "maintenance"
+                                        ? "New reports or assigned work will appear here."
+                                        : "Records you are allowed to view will appear here."
+                            }
+                        >
+                            {search && (
+                                <button
+                                    className="button secondary"
+                                    onClick={() => setSearch("")}
+                                >
+                                    Clear search
+                                </button>
+                            )}
+                        </Empty>
+                    ) : ["facilities", "equipment"].includes(name) &&
+                      catalogView === "cards" ? (
+                        <div className="resource-grid">
+                            {visible.map((row) => (
+                                <ResourceCard
+                                    key={row[resource.id]}
+                                    row={row}
+                                    kind={name}
+                                    catalogs={names}
+                                    onDetails={() => view(row)}
+                                    onRequest={() => {
+                                        window.location.hash = requestLink(
+                                            name,
+                                            row[resource.id],
+                                        );
+                                    }}
+                                    manage={
+                                        isAdmin(user) ? (
                                             <div className="row-actions">
                                                 <button
-                                                    onClick={() => view(row)}
+                                                    onClick={() => edit(row)}
                                                 >
-                                                    Details
+                                                    Edit
                                                 </button>
-                                                {actions(row).map(
-                                                    ([type, label]) => (
-                                                        <button
-                                                            key={type}
-                                                            className={
-                                                                [
-                                                                    "delete",
-                                                                    "reject",
-                                                                    "cancel",
-                                                                ].includes(type)
-                                                                    ? "danger-link"
-                                                                    : ""
-                                                            }
-                                                            onClick={() =>
-                                                                type === "edit"
-                                                                    ? edit(row)
-                                                                    : action(
-                                                                          row,
-                                                                          type,
-                                                                      )
-                                                            }
-                                                        >
-                                                            {label}
-                                                        </button>
-                                                    ),
-                                                )}
+                                                <button
+                                                    className="danger-link"
+                                                    onClick={() =>
+                                                        action(row, "delete")
+                                                    }
+                                                >
+                                                    Delete
+                                                </button>
                                             </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                        ) : null
+                                    }
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <DataTable
+                            rows={visible}
+                            rowKey={resource.id}
+                            columns={resource.columns.map((key) => ({
+                                key,
+                                label: labels[key] || key,
+                            }))}
+                            renderCell={(row, key) =>
+                                [
+                                    "status",
+                                    "statusName",
+                                    "loanStatus",
+                                    "conditionStatus",
+                                    "priority",
+                                ].includes(key) ? (
+                                    <Badge value={row[key]} />
+                                ) : (
+                                    <span
+                                        className="cell-text"
+                                        title={displayValue(row, key, names)}
+                                    >
+                                        {displayValue(row, key, names)}
+                                    </span>
+                                )
+                            }
+                            renderActions={renderActions}
+                        />
+                    )}
+                    <div className="pagination">
+                        <span>
+                            20 records per page · permissions follow your
+                            account
+                        </span>
+                        <div>
+                            <button
+                                className="button secondary small"
+                                disabled={page === 1 || loading}
+                                onClick={() => setPage(page - 1)}
+                            >
+                                ← Previous
+                            </button>
+                            <span className="page-number">{page}</span>
+                            <button
+                                className="button secondary small"
+                                disabled={!hasMore || loading}
+                                onClick={() => setPage(page + 1)}
+                            >
+                                Next →
+                            </button>
+                        </div>
                     </div>
-                )}
-                <div className="pagination">
-                    <span>
-                        Up to 20 records per page · visibility follows your role
-                    </span>
-                    <div>
-                        <button
-                            className="button secondary small"
-                            disabled={page === 1 || loading}
-                            onClick={() => setPage(page - 1)}
-                        >
-                            ← Previous
-                        </button>
-                        <button
-                            className="button secondary small"
-                            disabled={!hasMore || loading}
-                            onClick={() => setPage(page + 1)}
-                        >
-                            Next →
-                        </button>
-                    </div>
-                </div>
-            </section>
+                </section>
+            )}
             {modal && (
                 <Editor
                     {...modal}
-                    catalogs={catalogs}
+                    catalogs={names}
                     onClose={() => setModal(null)}
                 />
-            )}{" "}
+            )}
             {details && (
                 <RecordDetails
                     row={details}
-                    catalogs={catalogs}
+                    catalogs={names}
                     onClose={() => setDetails(null)}
                 />
             )}
@@ -830,127 +1013,44 @@ function ResourcePage({ name, catalogs, onChange }) {
 }
 export default function App() {
     const { user, api, logout } = useSession();
-    const route = useRoute();
-    const [mobile, setMobile] = useState(false),
-        [revision, setRevision] = useState(0);
+    const location = useRoute(),
+        [route, query = ""] = location.split("?");
+    const [revision, setRevision] = useState(0);
     const catalogs = useCatalogs(user, api, revision);
-    useEffect(() => setMobile(false), [route]);
     if (!user) return <Login />;
-    const allowed = route !== "assignments" || isAdmin(user) || isStaff(user);
+    const allowed =
+        (route !== "buildings" || isAdmin(user)) &&
+        (route !== "assignments" || isAdmin(user) || isStaff(user));
+    const pageTitle = navigation(user.role.roleName).find(
+        ([key]) => key === route,
+    )?.[1];
     return (
-        <div id="workspace" className="workspace">
-            <aside className={`sidebar ${mobile ? "open" : ""}`}>
-                <a href="#/overview" className="brand">
-                    <span className="brand-mark">C</span>
-                    <div>
-                        Campus<span>FACILITIES & SERVICES</span>
-                    </div>
-                </a>
-                <p className="nav-label">WORKSPACE</p>
-                <nav
-                    aria-label="Main navigation"
-                    onClick={() => setMobile(false)}
-                >
-                    <a
-                        className={route === "overview" ? "active" : ""}
-                        href="#/overview"
-                    >
-                        <Icon />
-                        Overview
-                    </a>
-                    {Object.entries(resources)
-                        .filter(
-                            ([key]) =>
-                                key !== "assignments" ||
-                                isAdmin(user) ||
-                                isStaff(user),
-                        )
-                        .map(([key, resource]) => (
-                            <a
-                                className={route === key ? "active" : ""}
-                                key={key}
-                                href={"#/" + key}
-                            >
-                                <Icon name={key} />
-                                {resource.title}
-                            </a>
-                        ))}
-                </nav>
-                <div className="sidebar-foot">
-                    <span className="access-dot" /> Role-based campus access
-                    <small>Campus Facility Management · IM101</small>
-                </div>
-            </aside>
-            <div className="workspace-content">
-                <header className="topbar">
-                    <div className="topbar-left">
-                        <button
-                            className="icon-button mobile-menu"
-                            aria-label="Toggle navigation"
-                            aria-expanded={mobile}
-                            onClick={() => setMobile(!mobile)}
-                        >
-                            ☰
-                        </button>
-                        <span className="breadcrumb">
-                            Campus services <span>/</span>{" "}
-                            {Object.hasOwn(resources, route)
-                                ? resources[route].title
-                                : "Overview"}
-                        </span>
-                    </div>
-                    <details className="account">
-                        <summary aria-label="Account menu">
-                            <span className="avatar">
-                                {user.fname?.slice(0, 1)}
-                            </span>
-                            <span>
-                                <strong>
-                                    {user.fname} {user.lname}
-                                </strong>
-                                <small>{user.role.roleName}</small>
-                            </span>
-                            <span aria-hidden="true">⌄</span>
-                        </summary>
-                        <div className="account-menu">
-                            <strong>Your account</strong>
-                            <p>{user.email}</p>
-                            <button
-                                className="button secondary"
-                                onClick={logout}
-                            >
-                                Sign out
-                            </button>
-                        </div>
-                    </details>
-                </header>
-                <main className="main-content">
-                    {!allowed ? (
-                        <Empty
-                            title="Access restricted"
-                            text="This workspace is not available for your role."
-                        />
-                    ) : route === "overview" ? (
-                        <Dashboard />
-                    ) : Object.hasOwn(resources, route) ? (
-                        <ResourcePage
-                            key={route}
-                            name={route}
-                            catalogs={catalogs}
-                            onChange={() => setRevision((value) => value + 1)}
-                        />
-                    ) : (
-                        <Empty
-                            title="Page not found"
-                            text="Choose a workspace from the navigation."
-                        />
-                    )}
-                </main>
-                <footer className="page-footer">
-                    Campus Facility Management System{" "}
-                    <span>Secure, role-based workspace</span>
-                </footer>
-            </div>
-        </div>
+        <AppShell user={user} route={route} logout={logout}>
+            {!allowed ? (
+                <Empty
+                    title="Access restricted"
+                    text="This workspace is not available for your role."
+                />
+            ) : route === "overview" ? (
+                <Dashboard catalogs={catalogs} />
+            ) : route === "profile" ? (
+                <Profile user={user} logout={logout} />
+            ) : route === "calendar" || Object.hasOwn(resources, route) ? (
+                <ResourcePage
+                    key={location}
+                    name={route === "calendar" ? "reservations" : route}
+                    pageTitle={pageTitle}
+                    calendarOnly={route === "calendar"}
+                    intent={query}
+                    catalogs={catalogs}
+                    onChange={() => setRevision((value) => value + 1)}
+                />
+            ) : (
+                <Empty
+                    title="Page not found"
+                    text="Choose a workspace from the navigation."
+                />
+            )}
+        </AppShell>
     );
 }

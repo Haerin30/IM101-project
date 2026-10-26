@@ -126,7 +126,9 @@ Dates entered as local wall time are checked and converted to explicit UTC times
 tables display the browser's local time. Date-only assignment fields remain UTC days.
 Daylight-saving repeated wall times still require operator care. JSON requests retain
 the existing 8 KB server cap, in addition to per-field limits. Catalog selectors show
-the first 100 actual records; numeric ID inputs allow records found on later pages.
+the first 100 actual records, with Load more for additional name-based choices.
+Displayed record names missing from loaded choices resolve through existing catalog
+detail reads; unavailable targets use neutral labels rather than numeric IDs.
 Maintenance detail currently includes all authorized action logs; very large histories
 will need separate log pagination. Partial loan returns and per-unit repair tracking
 remain deferred by the existing schema.

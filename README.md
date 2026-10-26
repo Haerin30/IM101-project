@@ -4,6 +4,10 @@ An IM101 project for managing campus facilities, equipment, reservations, loans,
 
 The stack is Node.js 24, Express 5, JavaScript (CommonJS backend), Prisma 7.10.1, PostgreSQL, React and Vite.
 
+The [frontend redesign guide](docs/frontend-ux-redesign.md) describes the role-specific dashboards, card-based browsing, searchable request forms, responsive calendar and current verification limits.
+
+The [reservation UI guide](docs/reservation-ui-usability.md) explains named facility/equipment choices, consistent date formatting, full-purpose details and the read-only Approved calendar. Calendar visibility follows the existing account permissions.
+
 ## Folders
 
 - `src/`: the Express app, server, database connection, authentication, and Buildings, Facilities, and Equipment routes.

@@ -19,7 +19,7 @@ test.each([
     [
         roles[0],
         [
-            "Dashboard",
+            "Overview",
             "Reservations",
             "Calendar",
             "Buildings",
@@ -35,7 +35,7 @@ test.each([
     [
         roles[1],
         [
-            "Dashboard",
+            "Overview",
             "Facilities",
             "Equipment",
             "My Reservations",
@@ -49,7 +49,7 @@ test.each([
     [
         roles[2],
         [
-            "Dashboard",
+            "Overview",
             "Browse Facilities",
             "Browse Equipment",
             "My Reservations",
@@ -74,7 +74,7 @@ const user = {
 };
 test("mobile navigation traps focus, closes on Escape and returns focus to its toggle", () => {
     render(
-        <AppShell user={user} route="overview" logout={() => {}}>
+        <AppShell user={user} route="overview" logout={() => { }}>
             <h1>Test workspace</h1>
         </AppShell>,
     );
@@ -97,8 +97,8 @@ test("mobile navigation traps focus, closes on Escape and returns focus to its t
 });
 test("collapsed desktop navigation retains accessible link names and profile is read only", () => {
     render(
-        <AppShell user={user} route="profile" logout={() => {}}>
-            <Profile user={user} logout={() => {}} />
+        <AppShell user={user} route="profile" logout={() => { }}>
+            <Profile user={user} logout={() => { }} />
         </AppShell>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
@@ -109,7 +109,7 @@ test("collapsed desktop navigation retains accessible link names and profile is 
     expect(within(main).getByText(/15 minutes/)).toBeTruthy();
 });
 test("searchable choices filter visible names while submitting only the selected numeric ID", async () => {
-    const submit = vi.fn(async () => {});
+    const submit = vi.fn(async () => { });
     render(
         <Editor
             title="Choose a space"
@@ -121,7 +121,7 @@ test("searchable choices filter visible names while submitting only the selected
                 ],
             }}
             onSubmit={submit}
-            onClose={() => {}}
+            onClose={() => { }}
         />,
     );
     fireEvent.change(
@@ -156,7 +156,7 @@ test("reversed reservation times produce inline linked errors and never submit",
                 endDatetime: date + "T11:00",
             }}
             onSubmit={submit}
-            onClose={() => {}}
+            onClose={() => { }}
         />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -307,7 +307,7 @@ test("phone calendar uses an agenda with approved events and readable full times
                         { facilityId: 30, facilityName: "Science Hall" },
                     ],
                 }}
-                onSelect={() => {}}
+                onSelect={() => { }}
             />,
         );
         await screen.findByRole("button", {

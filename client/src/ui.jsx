@@ -7,7 +7,7 @@ export function navigation(role) {
     const admin = role === roles[0],
         staff = role === roles[1];
     return [
-        ["overview", "Dashboard"],
+        ["overview", "Overview"],
         ...(admin
             ? [
                   ["reservations", "Reservations"],

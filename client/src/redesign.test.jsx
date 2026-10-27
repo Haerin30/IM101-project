@@ -19,7 +19,7 @@ test.each([
     [
         roles[0],
         [
-            "Dashboard",
+            "Overview",
             "Reservations",
             "Calendar",
             "Buildings",
@@ -35,7 +35,7 @@ test.each([
     [
         roles[1],
         [
-            "Dashboard",
+            "Overview",
             "Facilities",
             "Equipment",
             "My Reservations",
@@ -49,7 +49,7 @@ test.each([
     [
         roles[2],
         [
-            "Dashboard",
+            "Overview",
             "Browse Facilities",
             "Browse Equipment",
             "My Reservations",

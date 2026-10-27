@@ -28,6 +28,7 @@ test.each([
             "Equipment Loans",
             "Maintenance",
             "Staff Assignments",
+            "Account Management",
             "Profile",
         ],
     ],

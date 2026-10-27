@@ -237,7 +237,9 @@ async function navigate(name) {
 }
 test("real session provider protects shell, exposes role navigation and clears memory on logout", async () => {
     const fixture = setup();
-    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(
+        screen.queryByRole("navigation", { name: "Main navigation" }),
+    ).toBeNull();
     await login();
     expect(screen.getByRole("navigation")).toBeTruthy();
     expect(
@@ -257,6 +259,60 @@ test("real session provider protects shell, exposes role navigation and clears m
     ).toBe(true);
     expect(localStorage.length).toBe(0);
 });
+test("signup links return to login and successful login opens the dashboard", async () => {
+    setup();
+    fireEvent.click(screen.getByRole("link", { name: "Sign Up" }));
+    await act(async () =>
+        window.dispatchEvent(new HashChangeEvent("hashchange")),
+    );
+    expect(
+        await screen.findByRole("heading", { name: "Create an account" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Log In" }));
+    await act(async () =>
+        window.dispatchEvent(new HashChangeEvent("hashchange")),
+    );
+    await screen.findByRole("heading", { name: "Welcome back" });
+    await login();
+    expect(
+        screen.queryByRole("heading", { name: "Page not found" }),
+    ).toBeNull();
+});
+
+test.each([roles[1], roles[2]])(
+    "direct account management navigation is restricted for %s",
+    async (role) => {
+        setup(role);
+        await login();
+        expect(
+            screen.queryByRole("link", { name: "Account Management" }),
+        ).toBeNull();
+        await act(async () => {
+            window.location.hash = "#/accounts";
+            window.dispatchEvent(new HashChangeEvent("hashchange"));
+        });
+        expect(
+            screen.getByRole("heading", { name: "Access restricted" }),
+        ).toBeTruthy();
+        expect(
+            screen.queryByRole("button", { name: "Create staff account" }),
+        ).toBeNull();
+    },
+);
+
+test("administrator can open account management without access to existing passwords", async () => {
+    setup(roles[0]);
+    await login();
+    await navigate("Account Management");
+    expect(
+        await screen.findByRole("heading", { name: "Account Management" }),
+    ).toBeTruthy();
+    expect(
+        screen.getByRole("button", { name: "Create staff account" }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Initial password").value).toBe("");
+});
+
 test("administrator has management controls and empty states contain no demo records", async () => {
     setup(roles[0], 101);
     await login();
@@ -407,7 +463,9 @@ test("401 during navigation expires the session and hides previous records", asy
     await navigate("Facilities");
     await screen.findByRole("heading", { name: "Welcome back" });
     expect(screen.getByRole("status").textContent).toMatch(/session expired/i);
-    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(
+        screen.queryByRole("navigation", { name: "Main navigation" }),
+    ).toBeNull();
 });
 test("facility selector shows names while retaining the facility identity internally", () => {
     render(

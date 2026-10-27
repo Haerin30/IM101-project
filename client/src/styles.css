@@ -2504,3 +2504,68 @@ h3 {
         max-height: 100px;
     }
 }
+
+.auth-tabs {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--line);
+}
+.auth-tabs a {
+    padding: 10px 0;
+    color: var(--muted);
+    font-weight: 650;
+}
+.auth-tabs a[aria-current="page"] {
+    color: var(--ink);
+    border-bottom: 2px solid var(--ink);
+}
+.account-form fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+}
+.account-name-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+.account-form .field-hint {
+    margin: -10px 0 18px;
+    color: #626262;
+}
+.account-form .text-button {
+    margin-bottom: 18px;
+}
+.account-management {
+    padding: 28px;
+    max-width: 700px;
+}
+.account-management label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 650;
+    margin-bottom: 8px;
+}
+.account-management input {
+    display: block;
+    width: 100%;
+    min-height: 47px;
+    border: 1px solid #d5d5d5;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 21px;
+}
+.account-success p {
+    overflow-wrap: anywhere;
+}
+@media (max-width: 650px) {
+    .account-name-fields {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+    .account-management {
+        padding: 20px;
+    }
+}

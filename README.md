@@ -51,6 +51,20 @@ The unchanged `prisma-client-js` generator produces CommonJS-compatible JavaScri
 
 Equipment loans, maintenance and staff assignments now have authenticated APIs and frontend workflows. Their three additive migrations and the six reservation migrations are reviewable artifacts, not deployed database objects. No lookup values are provisioned automatically. Run `npm run prisma:generate` after installing dependencies or updating Prisma Client.
 
+## Account registration (prepared offline)
+
+Public `POST /api/auth/register` creates active Representative accounts only.
+Administrator-only `POST /api/accounts/staff` creates active Staff accounts only.
+Both accept exactly `fname`, `lname`, `email`, `password` and
+`passwordConfirmation`. Roles are resolved by the server, passwords are hashed,
+and existing accounts are never updated. The grayscale login includes Sign Up;
+administrators have an Account Management workspace.
+
+See [account registration](docs/account-registration.md) for validation, rate
+limits, initial password handling, offline evidence and deployment prerequisites.
+No email verification is implemented. Hosted restricted-runtime permissions and
+proxy-aware abuse controls require separate review before enabling live signup.
+
 ## Authentication
 
 `POST /api/auth/login` accepts JSON `{ "email": "student@example.test", "password": "example-password" }`. Email matching follows the existing unique database field (case-sensitive, with surrounding input whitespace removed). Passwords are never trimmed and must fit bcrypt's 72-byte limit.
@@ -76,7 +90,7 @@ Bodies larger than 8 KB receive 413; unsupported JSON charsets or content encodi
 
 Send `Authorization: Bearer <token>` to `GET /api/auth/me`. It returns `{ "success": true, "user": { ... } }` with the same safe profile fields. Tokens use HS256, a fixed issuer/audience, a user ID subject, and a 15-minute lifetime. The reusable `authenticate` middleware returned by `createAuth` validates tokens and reloads the current active user and role. Authentication responses use `Cache-Control: no-store`.
 
-The operator confirmed a successful real System Administrator login against Supabase V2: login HTTP 200, JWT verified, profile HTTP 200, the correct database role, and no password/hash fields in responses. This is operator-reported verification; it was not repeated during the final review. Historical code used bcrypt; `bcryptjs` supports its `$2a$` and `$2b$` hashes in the existing 255-character password column without schema changes. Plaintext and other formats are rejected. Authentication creates no accounts or role assignments. Automated tests use mocked Prisma reads and real bcrypt/JWT operations.
+The operator confirmed a successful real System Administrator login against Supabase V2: login HTTP 200, JWT verified, profile HTTP 200, the correct database role, and no password/hash fields in responses. This is operator-reported verification; it was not repeated during the final review. Historical code used bcrypt; `bcryptjs` supports its `$2a$` and `$2b$` hashes in the existing 255-character password column without schema changes. Plaintext and other formats are rejected. Login and profile retrieval create no accounts or role assignments. Automated tests use mocked Prisma reads and real bcrypt/JWT operations.
 
 Keep `JWT_SECRET` private and use HTTPS in deployment. Tokens are bearer credentials and have no individual logout/revocation mechanism in this foundation; rotating the secret invalidates all tokens. Login throttling is still required before public deployment. The dummy password comparison reduces trivial user-existence timing differences but does not guarantee identical timings across stored bcrypt costs. See the upstream [bcrypt documentation](https://github.com/dcodeIO/bcrypt.js) and [JWT documentation](https://github.com/auth0/node-jsonwebtoken).
 

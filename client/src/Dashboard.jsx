@@ -285,6 +285,7 @@ export default function Dashboard({ catalogs }) {
     return (
         <>
             <PageHeader
+                className="dashboard-welcome"
                 eyebrow={
                     admin
                         ? "ADMINISTRATION"

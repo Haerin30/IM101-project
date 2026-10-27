@@ -39,13 +39,14 @@ export function navigation(role) {
     ];
 }
 export function PageHeader({
+    className = "",
     eyebrow = "CAMPUS SERVICES",
     title,
     description,
     children,
 }) {
     return (
-        <div className="page-heading">
+        <div className={`page-heading ${className}`}>
             <div>
                 <p className="eyebrow">{eyebrow}</p>
                 <h1>{title}</h1>

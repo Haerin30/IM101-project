@@ -10,18 +10,18 @@ export function navigation(role) {
         ["overview", "Overview"],
         ...(admin
             ? [
-                ["reservations", "Reservations"],
-                ["calendar", "Calendar"],
-                ["buildings", "Buildings"],
-            ]
+                  ["reservations", "Reservations"],
+                  ["calendar", "Calendar"],
+                  ["buildings", "Buildings"],
+              ]
             : []),
         ["facilities", admin || staff ? "Facilities" : "Browse Facilities"],
         ["equipment", admin || staff ? "Equipment" : "Browse Equipment"],
         ...(!admin
             ? [
-                ["reservations", "My Reservations"],
-                ["calendar", "Calendar"],
-            ]
+                  ["reservations", "My Reservations"],
+                  ["calendar", "Calendar"],
+              ]
             : []),
         ["loans", admin || staff ? "Equipment Loans" : "My Equipment Loans"],
         [
@@ -29,8 +29,8 @@ export function navigation(role) {
             admin
                 ? "Maintenance"
                 : staff
-                    ? "Maintenance Tasks"
-                    : "Report Maintenance",
+                  ? "Maintenance Tasks"
+                  : "Report Maintenance",
         ],
         ...(admin || staff
             ? [["assignments", admin ? "Staff Assignments" : "My Assignments"]]
@@ -244,8 +244,8 @@ export function AppShell({ user, route, logout, children }) {
         user.role.roleName === roles[0]
             ? "Administrator"
             : user.role.roleName === roles[1]
-                ? "Maintenance staff"
-                : "Campus representative";
+              ? "Maintenance staff"
+              : "Campus representative";
     useEffect(() => {
         setMobile(false);
         document.getElementById("main-content")?.focus();
@@ -474,5 +474,5 @@ export const rowTitle = (row) =>
     (row.purpose
         ? purposePreview(row.purpose)
         : row.description
-            ? purposePreview(row.description)
-            : "Campus request");
+          ? purposePreview(row.description)
+          : "Campus request");

@@ -1,4 +1,5 @@
 const messages = {
+    429: "Too many account creation attempts. Try again later.",
     413: "This request is too large. Shorten the description or item list.",
     415: "Use the supported JSON request format.",
     400: "Check the form fields and try again.",
@@ -92,6 +93,11 @@ export function createApi({
                     message = "Sign-in failed. Check your email and password.";
                 if (response.status === 400 && Array.isArray(data?.errors)) {
                     const labels = {
+                        fname: "First name",
+                        lname: "Last name",
+                        email: "Email",
+                        password: "Password",
+                        passwordConfirmation: "Password confirmation",
                         facilityId: "Facility",
                         purpose: "Purpose",
                         startDatetime: "Start time",
@@ -99,6 +105,12 @@ export function createApi({
                         body: "Request",
                     };
                     const codes = {
+                        INVALID_NAME: "must contain 1 to 60 valid characters",
+                        INVALID_EMAIL:
+                            "must be a valid address of at most 150 characters",
+                        PASSWORD_POLICY:
+                            "must be a unique passphrase of 15 or more characters, at most 72 UTF-8 bytes, without control characters",
+                        PASSWORD_MISMATCH: "must match the password",
                         REQUIRED: "is required",
                         INVALID_FACILITY_ID: "must be a positive integer",
                         INVALID_PURPOSE: "must contain valid text",

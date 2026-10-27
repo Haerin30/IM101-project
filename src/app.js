@@ -9,6 +9,13 @@ function createApp(options = {}) {
         jwtSecret: options.jwtSecret ?? process.env.JWT_SECRET,
     });
     app.use(express.json({ limit: "8kb" }));
+    const registration =
+        require("./account-registration").createAccountRegistration({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        });
+    app.use("/api/auth", registration.publicRouter);
+    app.use("/api/accounts", registration.adminRouter);
     app.use("/api/auth", router);
     app.use(
         "/api/buildings",

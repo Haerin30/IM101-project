@@ -35,6 +35,7 @@ export function navigation(role) {
         ...(admin || staff
             ? [["assignments", admin ? "Staff Assignments" : "My Assignments"]]
             : []),
+        ...(admin ? [["accounts", "Account Management"]] : []),
         ["profile", "Profile"],
     ];
 }

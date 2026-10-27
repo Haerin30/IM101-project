@@ -13,6 +13,7 @@ import { useRecordNames } from "./names";
 import ReservationCalendar from "./ReservationCalendar";
 import Dashboard from "./Dashboard";
 import CampusIllustration from "./CampusIllustration";
+import { AccountForm, AccountManagement } from "./AccountForm";
 import {
     AppShell,
     Profile,
@@ -40,7 +41,7 @@ function useRoute() {
     }, []);
     return route;
 }
-export function Login() {
+export function Login({ signup = false }) {
     const { login, notice } = useSession();
     const [email, setEmail] = useState(""),
         [password, setPassword] = useState(""),
@@ -69,78 +70,120 @@ export function Login() {
             <div className="login-layout">
                 <main className="login-main">
                     <div className="login-card">
-                        <p className="eyebrow">YOUR CAMPUS WORKSPACE</p>
-                        <h2>Welcome back</h2>
-                        <p className="muted">
-                            Everything you need for your next campus activity.
-                        </p>
-                        {notice && (
-                            <p className="notice" role="status">
-                                {notice}
-                            </p>
-                        )}
-                        <Alert>{error}</Alert>
-                        <form onSubmit={submit}>
-                            <label htmlFor="login-email">Campus email</label>
-                            <input
-                                id="login-email"
-                                type="email"
-                                autoComplete="username"
-                                placeholder="you@university.edu"
-                                value={email}
-                                onChange={(event) =>
-                                    setEmail(event.target.value)
-                                }
-                                required
-                                disabled={busy}
-                            />
-                            <label htmlFor="login-password">Password</label>
-                            <div className="password-control">
-                                <input
-                                    id="login-password"
-                                    type={showPassword ? "text" : "password"}
-                                    autoComplete="current-password"
-                                    value={password}
-                                    onChange={(event) =>
-                                        setPassword(event.target.value)
-                                    }
-                                    required
-                                    disabled={busy}
-                                />
-                                <button
-                                    type="button"
-                                    className="password-toggle"
-                                    aria-label={
-                                        showPassword
-                                            ? "Hide password"
-                                            : "Show password"
-                                    }
-                                    aria-pressed={showPassword}
-                                    aria-controls="login-password"
-                                    disabled={busy}
-                                    onClick={() =>
-                                        setShowPassword((value) => !value)
-                                    }
-                                >
-                                    {showPassword ? "Hide" : "Show"}
-                                </button>
-                            </div>
-                            <button
-                                className="button primary login-submit"
-                                disabled={busy}
+                        <nav className="auth-tabs" aria-label="Account access">
+                            <a
+                                href="#/login"
+                                aria-current={!signup ? "page" : undefined}
                             >
-                                {busy ? "Signing in…" : "Sign in to workspace"}
-                                <span aria-hidden="true">→</span>
-                            </button>
-                        </form>
-                        <p className="login-help">
-                            Need an account or password help? Contact your
-                            system administrator.
-                        </p>
-                        <p className="security-note">
-                            Your session stays in memory and ends when this page
-                            reloads.
-                        </p>
+                                Log In
+                            </a>
+                            <a
+                                href="#/signup"
+                                aria-current={signup ? "page" : undefined}
+                            >
+                                Sign Up
+                            </a>
+                        </nav>
+                        {signup ? (
+                            <>
+                                <p className="eyebrow">JOIN YOUR CAMPUS</p>
+                                <h2>Create an account</h2>
+                                <p className="muted">
+                                    Request facilities and borrow equipment as a
+                                    Representative. Staff accounts are created
+                                    by an administrator.
+                                </p>
+                                <AccountForm />
+                            </>
+                        ) : (
+                            <>
+                                <p className="eyebrow">YOUR CAMPUS WORKSPACE</p>
+                                <h2>Welcome back</h2>
+                                <p className="muted">
+                                    Everything you need for your next campus
+                                    activity.
+                                </p>
+                                {notice && (
+                                    <p className="notice" role="status">
+                                        {notice}
+                                    </p>
+                                )}
+                                <Alert>{error}</Alert>
+                                <form onSubmit={submit}>
+                                    <label htmlFor="login-email">
+                                        Campus email
+                                    </label>
+                                    <input
+                                        id="login-email"
+                                        type="email"
+                                        autoComplete="username"
+                                        placeholder="you@university.edu"
+                                        value={email}
+                                        onChange={(event) =>
+                                            setEmail(event.target.value)
+                                        }
+                                        required
+                                        disabled={busy}
+                                    />
+                                    <label htmlFor="login-password">
+                                        Password
+                                    </label>
+                                    <div className="password-control">
+                                        <input
+                                            id="login-password"
+                                            type={
+                                                showPassword
+                                                    ? "text"
+                                                    : "password"
+                                            }
+                                            autoComplete="current-password"
+                                            value={password}
+                                            onChange={(event) =>
+                                                setPassword(event.target.value)
+                                            }
+                                            required
+                                            disabled={busy}
+                                        />
+                                        <button
+                                            type="button"
+                                            className="password-toggle"
+                                            aria-label={
+                                                showPassword
+                                                    ? "Hide password"
+                                                    : "Show password"
+                                            }
+                                            aria-pressed={showPassword}
+                                            aria-controls="login-password"
+                                            disabled={busy}
+                                            onClick={() =>
+                                                setShowPassword(
+                                                    (value) => !value,
+                                                )
+                                            }
+                                        >
+                                            {showPassword ? "Hide" : "Show"}
+                                        </button>
+                                    </div>
+                                    <button
+                                        className="button primary login-submit"
+                                        disabled={busy}
+                                    >
+                                        {busy
+                                            ? "Signing in…"
+                                            : "Sign in to workspace"}
+                                        <span aria-hidden="true">→</span>
+                                    </button>
+                                </form>
+                                <p className="login-help">
+                                    Need an account or password help? Contact
+                                    your system administrator.
+                                </p>
+                                <p className="security-note">
+                                    Your session stays in memory and ends when
+                                    this page reloads.
+                                </p>
+                            </>
+                        )}
                     </div>
                 </main>
                 <aside className="login-story">
@@ -1041,12 +1084,17 @@ function ResourcePage({
 export default function App() {
     const { user, api, logout } = useSession();
     const location = useRoute(),
-        [route, query = ""] = location.split("?");
+        [requestedRoute, query = ""] = location.split("?");
+    const route =
+        user && ["login", "signup"].includes(requestedRoute)
+            ? "overview"
+            : requestedRoute;
     const [revision, setRevision] = useState(0);
     const catalogs = useCatalogs(user, api, revision);
-    if (!user) return <Login />;
+    if (!user) return <Login signup={route === "signup"} />;
     const allowed =
         (route !== "buildings" || isAdmin(user)) &&
+        (route !== "accounts" || isAdmin(user)) &&
         (route !== "assignments" || isAdmin(user) || isStaff(user));
     const pageTitle = navigation(user.role.roleName).find(
         ([key]) => key === route,
@@ -1060,6 +1108,8 @@ export default function App() {
                 />
             ) : route === "overview" ? (
                 <Dashboard catalogs={catalogs} />
+            ) : route === "accounts" ? (
+                <AccountManagement />
             ) : route === "profile" ? (
                 <Profile user={user} logout={logout} />
             ) : route === "calendar" || Object.hasOwn(resources, route) ? (

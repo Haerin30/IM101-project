@@ -12,6 +12,7 @@ import { displayValue, recordReference } from "./presentation";
 import { useRecordNames } from "./names";
 import ReservationCalendar from "./ReservationCalendar";
 import Dashboard from "./Dashboard";
+import CampusIllustration from "./CampusIllustration";
 import {
     AppShell,
     Profile,
@@ -43,6 +44,7 @@ export function Login() {
     const { login, notice } = useSession();
     const [email, setEmail] = useState(""),
         [password, setPassword] = useState(""),
+        [showPassword, setShowPassword] = useState(false),
         [error, setError] = useState(""),
         [busy, setBusy] = useState(false);
     const pending = useRef(false);
@@ -63,114 +65,139 @@ export function Login() {
         }
     }
     return (
-        <div className="login-layout">
-            <aside className="login-story">
-                <div className="brand light">
-                    <span className="brand-mark">C</span>
-                    <div>
-                        Campus<span>FACILITIES & SERVICES</span>
-                    </div>
-                </div>
-                <div className="story-copy">
-                    <p className="eyebrow">ONE CONNECTED CAMPUS</p>
-                    <h1>
-                        Your campus.
-                        <br />
-                        One place.
-                    </h1>
-                    <p>
-                        Find a space. Bring your plans to life. A simpler way to
-                        reserve, borrow and care for the spaces we share.
-                    </p>
-                    <div className="login-features">
-                        <div>
-                            <Icon name="reservations" />
-                            <span>
-                                <strong>Make room for your ideas</strong>
-                                <small>
-                                    Find and request the right campus space.
-                                </small>
-                            </span>
-                        </div>
-                        <div>
-                            <Icon name="equipment" />
-                            <span>
-                                <strong>Bring what you need</strong>
-                                <small>
-                                    Borrow equipment for your next activity.
-                                </small>
-                            </span>
-                        </div>
-                        <div>
-                            <Icon name="maintenance" />
-                            <span>
-                                <strong>Keep campus at its best</strong>
-                                <small>
-                                    Report an issue and follow its progress.
-                                </small>
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <p className="story-footer">
-                    Campus Facility Management System · IM101
-                </p>
-            </aside>
-            <main className="login-main">
-                <div className="login-card">
-                    <p className="eyebrow">YOUR CAMPUS WORKSPACE</p>
-                    <h2>Welcome back</h2>
-                    <p className="muted">
-                        Everything you need for your next campus activity.
-                    </p>
-                    {notice && (
-                        <p className="notice" role="status">
-                            {notice}
+        <div className="login-page">
+            <div className="login-layout">
+                <main className="login-main">
+                    <div className="login-card">
+                        <p className="eyebrow">YOUR CAMPUS WORKSPACE</p>
+                        <h2>Welcome back</h2>
+                        <p className="muted">
+                            Everything you need for your next campus activity.
                         </p>
-                    )}
-                    <Alert>{error}</Alert>
-                    <form onSubmit={submit}>
-                        <label htmlFor="login-email">Campus email</label>
-                        <input
-                            id="login-email"
-                            type="email"
-                            autoComplete="username"
-                            placeholder="you@university.edu"
-                            value={email}
-                            onChange={(event) => setEmail(event.target.value)}
-                            required
-                            disabled={busy}
-                        />
-                        <label htmlFor="login-password">Password</label>
-                        <input
-                            id="login-password"
-                            type="password"
-                            autoComplete="current-password"
-                            value={password}
-                            onChange={(event) =>
-                                setPassword(event.target.value)
-                            }
-                            required
-                            disabled={busy}
-                        />
-                        <button
-                            className="button primary login-submit"
-                            disabled={busy}
-                        >
-                            {busy ? "Signing in…" : "Sign in to workspace"}
-                            <span aria-hidden="true">→</span>
-                        </button>
-                    </form>
-                    <p className="login-help">
-                        Need an account or password help? Contact your system
-                        administrator.
+                        {notice && (
+                            <p className="notice" role="status">
+                                {notice}
+                            </p>
+                        )}
+                        <Alert>{error}</Alert>
+                        <form onSubmit={submit}>
+                            <label htmlFor="login-email">Campus email</label>
+                            <input
+                                id="login-email"
+                                type="email"
+                                autoComplete="username"
+                                placeholder="you@university.edu"
+                                value={email}
+                                onChange={(event) =>
+                                    setEmail(event.target.value)
+                                }
+                                required
+                                disabled={busy}
+                            />
+                            <label htmlFor="login-password">Password</label>
+                            <div className="password-control">
+                                <input
+                                    id="login-password"
+                                    type={showPassword ? "text" : "password"}
+                                    autoComplete="current-password"
+                                    value={password}
+                                    onChange={(event) =>
+                                        setPassword(event.target.value)
+                                    }
+                                    required
+                                    disabled={busy}
+                                />
+                                <button
+                                    type="button"
+                                    className="password-toggle"
+                                    aria-label={
+                                        showPassword
+                                            ? "Hide password"
+                                            : "Show password"
+                                    }
+                                    aria-pressed={showPassword}
+                                    aria-controls="login-password"
+                                    disabled={busy}
+                                    onClick={() =>
+                                        setShowPassword((value) => !value)
+                                    }
+                                >
+                                    {showPassword ? "Hide" : "Show"}
+                                </button>
+                            </div>
+                            <button
+                                className="button primary login-submit"
+                                disabled={busy}
+                            >
+                                {busy ? "Signing in…" : "Sign in to workspace"}
+                                <span aria-hidden="true">→</span>
+                            </button>
+                        </form>
+                        <p className="login-help">
+                            Need an account or password help? Contact your
+                            system administrator.
+                        </p>
+                        <p className="security-note">
+                            Your session stays in memory and ends when this page
+                            reloads.
+                        </p>
+                    </div>
+                </main>
+                <aside className="login-story">
+                    <div className="brand light">
+                        <span className="brand-mark">C</span>
+                        <div>
+                            Campus<span>FACILITIES & SERVICES</span>
+                        </div>
+                    </div>
+                    <div className="story-copy">
+                        <p className="eyebrow">ONE CONNECTED CAMPUS</p>
+                        <h1>
+                            Your campus.
+                            <br />
+                            One place.
+                        </h1>
+                        <p>
+                            Find a space. Bring your plans to life. A simpler
+                            way to reserve, borrow and care for the spaces we
+                            share.
+                        </p>
+                        <CampusIllustration />
+                        <div className="login-features">
+                            <div>
+                                <Icon name="reservations" />
+                                <span>
+                                    <strong>Make room for your ideas</strong>
+                                    <small>
+                                        Find and request the right campus space.
+                                    </small>
+                                </span>
+                            </div>
+                            <div>
+                                <Icon name="equipment" />
+                                <span>
+                                    <strong>Bring what you need</strong>
+                                    <small>
+                                        Borrow equipment for your next activity.
+                                    </small>
+                                </span>
+                            </div>
+                            <div>
+                                <Icon name="maintenance" />
+                                <span>
+                                    <strong>Keep campus at its best</strong>
+                                    <small>
+                                        Report an issue and follow its progress.
+                                    </small>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <p className="story-footer">
+                        Campus Facility Management System · IM101
                     </p>
-                    <p className="security-note">
-                        Your session stays in memory and ends when this page
-                        reloads.
-                    </p>
-                </div>
-            </main>
+                </aside>
+            </div>
         </div>
     );
 }

@@ -7,6 +7,7 @@ import {
     recordName,
     recordReference,
     purposePreview,
+    formatDate,
 } from "./presentation";
 import { useRecordNames } from "./names";
 import { useSession } from "./session";
@@ -341,10 +342,20 @@ export function Editor({
         ),
         [busy, setBusy] = useState(false),
         [error, setError] = useState(""),
-        [blocked, setBlocked] = useState(false);
+        [blocked, setBlocked] = useState(false),
+        [conflict, setConflict] = useState(false);
+    const restoreScheduleFocus = useRef(false);
     const pending = useRef(false);
     const [invalid, setInvalid] = useState({});
     const formRef = useRef(null);
+    useEffect(() => {
+        if (!conflict && restoreScheduleFocus.current) {
+            formRef.current
+                ?.querySelector('input[type="datetime-local"]')
+                ?.focus();
+            restoreScheduleFocus.current = false;
+        }
+    }, [conflict]);
     useEffect(() => {
         if (Object.keys(invalid).length)
             formRef.current?.querySelector('[aria-invalid="true"]')?.focus();
@@ -434,6 +445,14 @@ export function Editor({
             await onSubmit(data);
             onClose();
         } catch (error) {
+            if (
+                formKind === "reservations" &&
+                error.code === "RESERVATION_SCHEDULE_CONFLICT"
+            ) {
+                setConflict(true);
+                setBlocked(false);
+                return;
+            }
             setError(error.message || "Unable to complete the operation.");
             setBlocked(Boolean(error.requiresRefresh));
         } finally {
@@ -441,8 +460,51 @@ export function Editor({
             setBusy(false);
         }
     }
+    const chooseSchedule = () => {
+        restoreScheduleFocus.current = true;
+        setConflict(false);
+    };
+    if (conflict)
+        return (
+            <Modal
+                key="conflict"
+                title="Schedule Conflict"
+                onClose={chooseSchedule}
+            >
+                <div className="modal-body">
+                    <p>
+                        The selected facility is already reserved during the
+                        requested time. Choose another schedule.
+                    </p>
+                    <h3>
+                        {recordName(
+                            Number(values.facilityId),
+                            "facility",
+                            namedCatalogs,
+                        )}
+                    </h3>
+                    <p>
+                        {formatDate(toInstant(values.startDatetime))} to{" "}
+                        {formatDate(toInstant(values.endDatetime))}
+                    </p>
+                    <p>
+                        Your request was not created. No automatic retry was
+                        made.
+                    </p>
+                </div>
+                <div className="modal-footer">
+                    <button
+                        type="button"
+                        className="button primary"
+                        onClick={chooseSchedule}
+                    >
+                        Choose Another Schedule
+                    </button>
+                </div>
+            </Modal>
+        );
     return (
-        <Modal title={title} onClose={onClose} busy={busy}>
+        <Modal key="editor" title={title} onClose={onClose} busy={busy}>
             <form ref={formRef} noValidate onSubmit={submit} aria-label={title}>
                 <div className="modal-body">
                     {formKind && (

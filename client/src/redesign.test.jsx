@@ -278,20 +278,18 @@ test("phone calendar uses an agenda with approved events and readable full times
         ).toISOString();
     const api = {
         request: vi.fn(async () => ({
-            reservations: [
+            availability: [
                 {
-                    reservationId: 1,
-                    statusId: 29,
                     facilityId: 30,
-                    purpose: "Campus forum",
+                    facilityName: "Science Hall",
+                    status: "Approved",
                     startDatetime: start,
                     endDatetime: end,
                 },
                 {
-                    reservationId: 2,
-                    statusId: 17,
                     facilityId: 30,
-                    purpose: "Pending forum",
+                    facilityName: "Science Hall",
+                    status: "Pending",
                     startDatetime: start,
                     endDatetime: end,
                 },
@@ -313,7 +311,7 @@ test("phone calendar uses an agenda with approved events and readable full times
             />,
         );
         await screen.findByRole("button", {
-            name: /Campus forum.*Science Hall/,
+            name: /Confirmed booking.*Science Hall/,
         });
         expect(document.querySelector(".agenda-list")).not.toBeNull();
         expect(document.querySelector(".calendar-grid")).toBeNull();

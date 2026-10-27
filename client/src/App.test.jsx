@@ -164,6 +164,22 @@ function setup(role = roles[2], id = 301) {
             if (action === "assign") record.assignedStaffId = input.staffId;
             else record.status = input.status;
             result = { maintenanceRequest: record };
+        } else if (path === "/reservation-availability") {
+            result = {
+                availability: rows.reservations
+                    .filter((row) => [17, 29].includes(row.statusId))
+                    .map((row) => ({
+                        facilityId: row.facilityId,
+                        facilityName: rows.facilities.find(
+                            (facility) =>
+                                facility.facilityId === row.facilityId,
+                        )?.facilityName,
+                        status: row.statusId === 29 ? "Approved" : "Pending",
+                        startDatetime: row.startDatetime,
+                        endDatetime: row.endDatetime,
+                    })),
+                pagination: { hasMore: false },
+            };
         } else if (path === "/facility-types")
             result = { facilityTypes: rows.facilityTypes };
         else if (path === "/equipment-categories")
@@ -607,7 +623,7 @@ test("dashboard and reservation table show named facilities and previews with fu
     expect(details.textContent).not.toContain("Facility ID");
 });
 
-test("reservation section switches to Approved-only calendar and opens scoped details", async () => {
+test("reservation section switches to safe campus availability while private details stay in the list", async () => {
     const fixture = setup();
     const now = new Date();
     for (const [id, statusId, purpose] of [
@@ -636,18 +652,21 @@ test("reservation section switches to Approved-only calendar and opens scoped de
     await login();
     await navigate("Reservations");
     fireEvent.click(
-        await screen.findByRole("button", { name: "Approved calendar" }),
+        await screen.findByRole("button", { name: "Availability calendar" }),
     );
     const event = await screen.findByRole("button", {
-        name: /Approved workshop.*Fixture hall/,
+        name: /Confirmed booking.*Fixture hall/,
     });
+    expect(
+        screen.getByText("Campus-wide time slots; private details are hidden"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Only your reservations are shown")).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByText("Pending workshop")).toBeNull();
     fireEvent.click(event);
     const details = await screen.findByRole("dialog");
-    expect(details.querySelector(".full-purpose").textContent).toBe(
-        "Approved workshop\nWorkshop full details",
-    );
+    expect(details.querySelector(".full-purpose")).toBeNull();
+    expect(details.textContent).not.toContain("Workshop full details");
     expect(within(details).getByText("Approved")).toBeTruthy();
     fireEvent.click(
         within(details).getByRole("button", { name: "Close dialog" }),

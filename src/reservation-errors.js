@@ -19,6 +19,20 @@ const sqlCodes = {
 // Only fixed SQLSTATE codes escape; never retain the driver error or its metadata.
 function reservationErrorCode(error) {
     try {
+        // Match only the fixed message paired with its SQLSTATE, never arbitrary
+        // driver text or a generic R4091/serialization error. No message is echoed.
+        const cause = error?.meta?.driverAdapterError?.cause;
+        for (const [code, message] of [
+            [error?.code, error?.message],
+            [error?.meta?.code, error?.meta?.message],
+            [cause?.originalCode, cause?.originalMessage],
+        ]) {
+            if (
+                code === "R4091" &&
+                message === "Reservation schedule conflict."
+            )
+                return "RESERVATION_SCHEDULE_CONFLICT";
+        }
         if (error?.code === "P2034") return "RESERVATION_CONFLICT";
         if (["P2002", "P2003"].includes(error?.code)) return "CORE_CONFLICT";
         for (const code of [
@@ -36,6 +50,10 @@ function reservationErrorCode(error) {
 }
 
 const publicErrors = {
+    RESERVATION_SCHEDULE_CONFLICT: [
+        409,
+        "The selected facility is already reserved during the requested time.",
+    ],
     RESERVATION_INPUT: [400, "Invalid reservation input or time interval."],
     RESERVATION_AUTHENTICATION: [401, "Authentication required."],
     RESERVATION_ACCESS: [403, "Access denied."],

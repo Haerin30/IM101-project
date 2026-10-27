@@ -18,6 +18,13 @@ function createApp(options = {}) {
     app.use("/api/accounts", registration.adminRouter);
     app.use("/api/auth", router);
     app.use(
+        "/api/reservation-availability",
+        require("./reservation-availability").createReservationAvailability({
+            getPrisma: options.getPrisma || getPrisma,
+            requireRoles,
+        }),
+    );
+    app.use(
         "/api/buildings",
         require("./buildings").createBuildings({
             getPrisma: options.getPrisma || getPrisma,

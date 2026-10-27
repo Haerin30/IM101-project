@@ -2569,3 +2569,12 @@ h3 {
         padding: 20px;
     }
 }
+
+.calendar-event.tentative {
+    border: 1px dashed #777777;
+    background: #ffffff;
+}
+.calendar-event.confirmed {
+    border-left: 3px solid #222222;
+    background: #eeeeee;
+}

@@ -202,6 +202,7 @@ async function run({ pool, config }) {
     );
     await require("./workflow.pg").run({ pool, config, check, transaction });
     await require("./account-registration.pg").run({ pool, config, check });
+    await require("./availability.pg").run({ pool, config, check });
     console.log(`Isolated PostgreSQL checks passed: ${passed}`);
 }
 module.exports = { run };

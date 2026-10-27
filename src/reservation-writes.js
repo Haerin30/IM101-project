@@ -24,7 +24,7 @@ function createReservationWrites({
         if (!mapped) return next(error);
         return res
             .status(mapped[0])
-            .json({ success: false, message: mapped[1] });
+            .json({ success: false, code, message: mapped[1] });
     }
     router.post("/", creators, async (req, res, next) => {
         if (Object.keys(req.query).length)

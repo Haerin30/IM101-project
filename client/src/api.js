@@ -11,10 +11,11 @@ const messages = {
     503: "This workflow is not configured yet. Contact your administrator.",
 };
 export class ApiError extends Error {
-    constructor(status, message, requiresRefresh = false) {
+    constructor(status, message, requiresRefresh = false, code = null) {
         super(message);
         this.status = status;
         this.requiresRefresh = requiresRefresh;
+        this.code = code;
     }
 }
 export function createApi({
@@ -86,6 +87,18 @@ export function createApi({
                 );
             }
             if (!response.ok || data?.success !== true) {
+                const reservationCode =
+                    method !== "GET" &&
+                    /^\/reservations(?:$|\/\d+\/(?:approve|reject|cancel)$)/.test(
+                        path,
+                    ) &&
+                    response.status === 409 &&
+                    [
+                        "RESERVATION_SCHEDULE_CONFLICT",
+                        "RESERVATION_CONFLICT",
+                    ].includes(data?.code)
+                        ? data.code
+                        : null;
                 let message =
                     messages[response.status] ||
                     "The request could not be completed.";
@@ -137,9 +150,13 @@ export function createApi({
                 }
                 throw new ApiError(
                     response.status,
-                    message,
+                    reservationCode === "RESERVATION_CONFLICT"
+                        ? "The transaction conflicted or its outcome needs verification. Refresh and check your request history before resubmitting."
+                        : message,
                     method !== "GET" &&
-                        (response.status === 409 || response.status >= 500),
+                        (response.status === 409 || response.status >= 500) &&
+                        reservationCode !== "RESERVATION_SCHEDULE_CONFLICT",
+                    reservationCode,
                 );
             }
             return data;

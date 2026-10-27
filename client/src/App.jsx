@@ -783,12 +783,14 @@ function ResourcePage({
                             window.location.hash = "#/calendar";
                         }}
                     >
-                        Approved calendar
+                        Availability calendar
                     </button>
                     <span className="scope-note">
-                        {isAdmin(user)
-                            ? "All authorized campus requests"
-                            : "Only your reservations are shown"}
+                        {reservationView === "calendar"
+                            ? "Campus-wide time slots; private details are hidden"
+                            : isAdmin(user)
+                              ? "All authorized campus requests"
+                              : "Only your reservations are shown"}
                     </span>
                 </div>
             )}
@@ -797,7 +799,7 @@ function ResourcePage({
                 <ReservationCalendar
                     api={api}
                     catalogs={catalogs}
-                    onSelect={view}
+                    refreshKey={revision}
                     onRefreshCatalogs={onChange}
                 />
             ) : (

@@ -141,7 +141,7 @@ async function run({ pool, config, check, transaction }) {
                 );
                 try {
                     await assert.rejects(create(), {
-                        code: "RESERVATION_CONFLICT",
+                        code: "RESERVATION_SCHEDULE_CONFLICT",
                     });
                 } finally {
                     await transaction("101", (client) =>

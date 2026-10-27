@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { test, expect, vi } from "vitest";
 import {
     render,
@@ -272,83 +272,65 @@ test("failed catalog resolution displays neutral text without IDs or private dia
     expect(document.body.textContent).not.toContain("55555");
     expect(document.body.textContent).not.toContain("PRIVATE");
 });
-test("calendar shows only Approved records, names and previews; click opens full details", async () => {
-    const events = [
-        row(1),
-        row(2, 217, "Pending planning"),
-        row(3, 741, "Rejected event"),
-        row(4, 853, "Cancelled event"),
-    ];
+
+function safeSlot(status = "Approved") {
+    return { ...row(1), facilityName: "Science Seminar Hall", status };
+}
+test("campus calendar shows confirmed and tentative slots without private purposes or details", async () => {
     const api = {
         request: vi.fn(async () => ({
-            reservations: events,
+            availability: [safeSlot(), safeSlot("Pending")],
             pagination: { hasMore: false },
         })),
     };
-    function CalendarDemo() {
-        const [selected, setSelected] = useState(null);
-        return (
-            <>
-                <Calendar
-                    api={api}
-                    catalogs={catalogs}
-                    onSelect={setSelected}
-                />
-                {selected && (
-                    <RecordDetails
-                        row={selected}
-                        catalogs={catalogs}
-                        onClose={() => setSelected(null)}
-                    />
-                )}
-            </>
-        );
-    }
-    render(<CalendarDemo />);
-    const button = await screen.findByRole("button", {
-        name: /Research symposium.*Science Seminar Hall/,
+    render(<Calendar api={api} catalogs={catalogs} />);
+    const confirmed = await screen.findByRole("button", {
+        name: /Confirmed booking.*Science Seminar Hall/,
     });
-    expect(button.textContent).toContain(formatDate(events[0].startDatetime));
-    expect(button.textContent).not.toContain("Full agenda");
-    for (const title of [
-        "Pending planning",
-        "Rejected event",
-        "Cancelled event",
-    ])
-        expect(screen.queryByText(title)).toBeNull();
-    fireEvent.click(button);
     expect(
-        screen.getByRole("dialog").querySelector(".full-purpose").textContent,
-    ).toBe(events[0].purpose);
-    expect(api.request.mock.calls[0][0]).toBe("/reservations?page=1&limit=100");
-    expect(
-        screen.getByText(/not a campus-wide availability calendar/),
+        screen.getByRole("button", {
+            name: /Tentative request.*Science Seminar Hall/,
+        }),
     ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Research symposium");
+    fireEvent.click(confirmed);
+    const dialog = screen.getByRole("dialog", { name: "Booking time slot" });
+    expect(dialog.textContent).not.toContain("Full agenda");
+    expect(dialog.textContent).not.toContain("301");
+    expect(api.request.mock.calls[0][0]).toMatch(
+        /^\/reservation-availability\?from=/,
+    );
 });
-test("calendar walks bounded scoped pages and includes approvals beyond page one", async () => {
+test("calendar paginates explicitly and refetches its bounded date range on month changes", async () => {
     const api = {
-        request: vi.fn(async (path) =>
-            path.includes("page=1&")
-                ? {
-                      reservations: [row(1, 217, "Pending")],
-                      pagination: { hasMore: true },
-                  }
-                : {
-                      reservations: [row(2, 918, "Later-page symposium")],
-                      pagination: { hasMore: false },
-                  },
-        ),
+        request: vi.fn(async (path) => ({
+            availability: [
+                safeSlot(path.includes("page=2") ? "Pending" : "Approved"),
+            ],
+            pagination: { hasMore: !path.includes("page=2") },
+        })),
     };
-    render(<Calendar api={api} catalogs={catalogs} onSelect={() => {}} />);
-    await screen.findByRole("button", { name: /Later-page symposium/ });
+    render(<Calendar api={api} catalogs={catalogs} />);
+    fireEvent.click(
+        await screen.findByRole("button", { name: "Load more slots" }),
+    );
+    await screen.findByRole("button", { name: /Tentative request/ });
     expect(api.request).toHaveBeenCalledTimes(2);
-    expect(
-        screen.queryByRole("button", { name: /Pending.*Science/ }),
-    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next month" }));
-    expect(api.request).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(api.request).toHaveBeenCalledTimes(3));
+    expect(
+        new URL(
+            api.request.mock.calls[0][0],
+            "http://fixture.test",
+        ).searchParams.get("from"),
+    ).not.toBe(
+        new URL(
+            api.request.mock.calls[2][0],
+            "http://fixture.test",
+        ).searchParams.get("from"),
+    );
 });
-test("calendar batches stop at ten bounded pages and explicitly expose continuation", async () => {
+test("ownership-scoped dashboard batches remain bounded at ten pages", async () => {
     const api = {
         request: vi.fn(async () => ({
             reservations: [],
@@ -364,58 +346,48 @@ test("calendar batches stop at ten bounded pages and explicitly expose continuat
             /^\/reservations\?page=\d+&limit=100$/.test(call[0]),
         ),
     ).toBe(true);
-    render(<Calendar api={api} catalogs={catalogs} onSelect={() => {}} />);
-    await screen.findByRole("button", { name: "Load more reservations" });
-    expect(screen.getByText(/Only loaded history is shown/)).toBeTruthy();
 });
-test("missing Approved lookup fails closed and month days use local calendar boundaries", async () => {
+test("calendar fails closed for malformed or unavailable availability and leap months use local boundaries", async () => {
     const api = {
         request: vi.fn(async () => ({
-            reservations: [row(1)],
+            availability: [safeSlot("Rejected")],
             pagination: { hasMore: false },
         })),
     };
-    render(
-        <Calendar
-            api={api}
-            catalogs={{ ...catalogs, statuses: [] }}
-            onSelect={() => {}}
-        />,
-    );
-    await screen.findByText(
-        "The Approved reservation status is not configured.",
-    );
+    render(<Calendar api={api} catalogs={catalogs} />);
+    await screen.findByRole("alert");
     expect(
-        screen.queryByRole("button", { name: /Research symposium/ }),
+        screen.queryByRole("button", { name: /Confirmed booking/ }),
     ).toBeNull();
+    expect(screen.getByText(/Schedule unavailable or incomplete/)).toBeTruthy();
     const days = monthDays(new Date(2028, 1, 1));
     expect(days).toHaveLength(42);
     expect(days[0].getDay()).toBe(0);
     expect(days.filter((day) => day.getMonth() === 1)).toHaveLength(29);
 });
-
-test("calendar refresh retries catalog reads as well as reservation history", async () => {
+test("calendar refresh and facility filtering query the availability API without relying on private status catalogs", async () => {
     const api = {
             request: vi.fn(async () => ({
-                reservations: [],
+                availability: [],
                 pagination: { hasMore: false },
             })),
         },
         retry = vi.fn();
     render(
-        <Calendar
-            api={api}
-            catalogs={{ unavailable: true }}
-            onSelect={() => {}}
-            onRefreshCatalogs={retry}
-        />,
+        <Calendar api={api} catalogs={catalogs} onRefreshCatalogs={retry} />,
     );
-    await screen.findByText(
-        "Reservation statuses are unavailable. Refresh the calendar to try again.",
-    );
-    const button = screen.getByRole("button", { name: "Refresh calendar" });
-    await waitFor(() => expect(button.disabled).toBe(false));
-    fireEvent.click(button);
-    expect(retry).toHaveBeenCalledTimes(1);
+    await screen.findByText(/No Pending or Approved slots/);
+    fireEvent.change(screen.getByRole("combobox", { name: "Facility" }), {
+        target: { value: "98765" },
+    });
     await waitFor(() => expect(api.request).toHaveBeenCalledTimes(2));
+    expect(api.request.mock.calls[1][0]).toContain("facilityId=98765");
+    await waitFor(() =>
+        expect(
+            screen.getByRole("button", { name: "Refresh calendar" }).disabled,
+        ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh calendar" }));
+    await waitFor(() => expect(api.request).toHaveBeenCalledTimes(3));
+    expect(retry).toHaveBeenCalledOnce();
 });
